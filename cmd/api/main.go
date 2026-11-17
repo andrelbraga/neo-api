@@ -29,7 +29,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	database, err := db.Open(context.Background(), cfg.DatabaseURL)
+	database, err := db.Open(context.Background(), cfg.DatabaseURL, cfg.DBSchema)
 	if err != nil {
 		log.Error("database unavailable", "error", err)
 		os.Exit(1)

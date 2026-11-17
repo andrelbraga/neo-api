@@ -22,9 +22,11 @@ var (
 )
 
 type Configs struct {
-	AppEnv         string
-	Port           string
-	DatabaseURL    string
+	AppEnv      string
+	Port        string
+	DatabaseURL string
+	// DBSchema isola as tabelas num schema próprio quando o banco é dividido com outro projeto (ADR-0018).
+	DBSchema       string
 	JWTSecret      string
 	JWTExpiryHours int
 	AllowedOrigins []string
@@ -36,6 +38,7 @@ func Load() Configs {
 		AppEnv:         getEnv("APP_ENV", EnvLocal),
 		Port:           getEnv("PORT", "8081"),
 		DatabaseURL:    getEnv("DATABASE_URL", "postgres://neo360:neo360@localhost:5433/neo360?sslmode=disable"),
+		DBSchema:       getEnv("DB_SCHEMA", ""),
 		JWTSecret:      getEnv("JWT_SECRET", devJWTSecret),
 		JWTExpiryHours: getEnvInt("JWT_EXPIRY_HOURS", 12),
 		AllowedOrigins: splitList(getEnv("ALLOWED_ORIGINS", "http://localhost:5174")),

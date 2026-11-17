@@ -7,12 +7,13 @@ import (
 )
 
 func TestLoad_Defaults(t *testing.T) {
-	for _, k := range []string{"APP_ENV", "PORT", "DATABASE_URL", "JWT_SECRET", "JWT_EXPIRY_HOURS", "ALLOWED_ORIGINS"} {
+	for _, k := range []string{"APP_ENV", "PORT", "DATABASE_URL", "DB_SCHEMA", "JWT_SECRET", "JWT_EXPIRY_HOURS", "ALLOWED_ORIGINS"} {
 		t.Setenv(k, "")
 	}
 	c := Load()
 	assert.Equal(t, EnvLocal, c.AppEnv)
 	assert.Equal(t, "8081", c.Port)
+	assert.Empty(t, c.DBSchema, "sem schema próprio, vale o padrão do banco")
 	assert.Contains(t, c.DatabaseURL, "localhost:5433/neo360")
 	assert.Equal(t, 12, c.JWTExpiryHours)
 	assert.Equal(t, []string{"http://localhost:5174"}, c.AllowedOrigins)
@@ -22,11 +23,13 @@ func TestLoad_Defaults(t *testing.T) {
 func TestLoad_FromEnv(t *testing.T) {
 	t.Setenv("APP_ENV", "production")
 	t.Setenv("PORT", "9000")
+	t.Setenv("DB_SCHEMA", "neo360")
 	t.Setenv("JWT_EXPIRY_HOURS", "abc")
 	t.Setenv("ALLOWED_ORIGINS", " https://a.app , ,https://b.app ")
 	c := Load()
 	assert.True(t, c.IsDeployed())
 	assert.Equal(t, "9000", c.Port)
+	assert.Equal(t, "neo360", c.DBSchema)
 	assert.Equal(t, 12, c.JWTExpiryHours, "valor inválido cai no default")
 	assert.Equal(t, []string{"https://a.app", "https://b.app"}, c.AllowedOrigins)
 }

@@ -21,7 +21,7 @@ func MigratedDB(t *testing.T, migrationsDir string) *sql.DB {
 		t.Skip("TEST_DATABASE_URL não definido")
 	}
 	ctx := context.Background()
-	database, err := db.Open(ctx, dsn)
+	database, err := db.Open(ctx, dsn, "")
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}

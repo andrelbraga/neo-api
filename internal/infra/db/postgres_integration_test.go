@@ -15,7 +15,7 @@ func TestOpen_Integration(t *testing.T) {
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL não definido")
 	}
-	database, err := Open(context.Background(), dsn)
+	database, err := Open(context.Background(), dsn, "")
 	require.NoError(t, err)
 	require.NoError(t, database.Close())
 }

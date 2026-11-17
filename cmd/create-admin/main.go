@@ -41,7 +41,7 @@ func run() error {
 
 	cfg := config.Load()
 	ctx := context.Background()
-	database, err := db.Open(ctx, cfg.DatabaseURL)
+	database, err := db.Open(ctx, cfg.DatabaseURL, cfg.DBSchema)
 	if err != nil {
 		return err
 	}
