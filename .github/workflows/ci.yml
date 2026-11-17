@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    name: API — lint, testes e cobertura
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: neo360
+          POSTGRES_PASSWORD: neo360
+          POSTGRES_DB: neo360_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U neo360 -d neo360_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Banco descartável do job: os testes de integração recriam o schema.
+      TEST_DATABASE_URL: postgres://neo360:neo360@localhost:5432/neo360_test?sslmode=disable
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Lint (gofmt + go vet)
+        run: make lint
+
+      - name: Build
+        run: go build -trimpath -o bin/ ./cmd/...
+
+      - name: Build da imagem Docker
+        run: docker build -t neo360-api-ci .
+
+      - name: Testes unitários e de integração
+        run: make test-integration
+
+      - name: Cobertura de internal/ (mínimo 80%)
+        run: |
+          make cover | tee cover.txt
+          pct=$(awk '{print $NF}' cover.txt | tr -d '%')
+          awk -v p="$pct" 'BEGIN { exit !(p >= 80) }' || (echo "cobertura $pct% abaixo de 80%"; exit 1)

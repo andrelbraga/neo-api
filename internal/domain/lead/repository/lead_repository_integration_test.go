@@ -1,0 +1,264 @@
+//go:build integration
+
+package repository
+
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"neo360-api/internal/domain/lead"
+	"neo360-api/internal/testutil"
+)
+
+func TestLeadRepository_Integration(t *testing.T) {
+	database := testutil.MigratedDB(t, "../../../../sql/migrations")
+	repo := NewLeadRepository(database)
+	ctx := context.Background()
+
+	var devID, userID, brokerID, otherUser, otherBroker string
+	require.NoError(t, database.QueryRowContext(ctx, `SELECT id FROM developments WHERE slug = 'boa-vista-residencial'`).Scan(&devID))
+	newBroker := func(email, code string, user, broker *string) {
+		require.NoError(t, database.QueryRowContext(ctx,
+			`INSERT INTO users (name, email, password_hash, role) VALUES ('X', $1, 'h', 'corretor') RETURNING id`, email).Scan(user))
+		require.NoError(t, database.QueryRowContext(ctx,
+			`INSERT INTO brokers (user_id, first_name, last_name, phone, creci, code) VALUES ($1, 'Fabiano', 'Souza', '54999990000', '123', $2) RETURNING id`,
+			*user, code).Scan(broker))
+	}
+	newBroker("fab@x.com", "FAB-0001", &userID, &brokerID)
+	newBroker("ana@x.com", "ANA-0001", &otherUser, &otherBroker)
+
+	b, err := repo.ShowroomBroker(ctx, "FAB-0001")
+	require.NoError(t, err)
+	assert.Equal(t, lead.PublicBroker{ID: brokerID, Name: "Fabiano Souza", Phone: "54999990000", Creci: "123", Code: "FAB-0001"}, b)
+	var agencyID string
+	require.NoError(t, database.QueryRowContext(ctx, `SELECT id FROM organizations WHERE kind = 'imobiliaria' AND name = 'Omni'`).Scan(&agencyID))
+	_, err = database.ExecContext(ctx, `UPDATE brokers SET agency_id = $1 WHERE id = $2`, agencyID, otherBroker)
+	require.NoError(t, err)
+	ana, err := repo.ShowroomBroker(ctx, "ANA-0001")
+	require.NoError(t, err)
+	assert.Equal(t, "Omni", ana.AgencyName, "o showroom mostra a imobiliária do corretor")
+	assert.Equal(t, "/logos/imobiliaria-omni.png", ana.AgencyLogo, "com o logo da imobiliária pré-cadastrada")
+	_, err = repo.ShowroomBroker(ctx, "XXX-0000")
+	assert.ErrorIs(t, err, lead.ErrShowroomNotFound)
+
+	id, err := repo.BrokerIDByUser(ctx, userID)
+	require.NoError(t, err)
+	assert.Equal(t, brokerID, id)
+	for _, u := range []string{"00000000-0000-0000-0000-000000000000", "nao-e-uuid"} {
+		_, err = repo.BrokerIDByUser(ctx, u)
+		assert.ErrorIs(t, err, lead.ErrNotBroker)
+	}
+
+	l, err := repo.Create(ctx, devID, brokerID, "hash-1")
+	require.NoError(t, err)
+	assert.Equal(t, lead.StageNew, l.Stage)
+	assert.Equal(t, "Boa Vista Residencial", l.DevelopmentName)
+	assert.Equal(t, "FAB-0001", l.BrokerCode)
+	other, err := repo.Create(ctx, devID, otherBroker, "hash-2")
+	require.NoError(t, err)
+
+	found, err := repo.FindByToken(ctx, "hash-1")
+	require.NoError(t, err)
+	assert.Equal(t, l.ID, found.ID)
+	_, err = repo.FindByToken(ctx, "nao-existe")
+	assert.ErrorIs(t, err, lead.ErrNotFound)
+
+	before := found.LastActivityAt
+	require.NoError(t, repo.AddEvent(ctx, l.ID, lead.EventVisit, []byte(`{"codigo":"FAB-0001"}`)))
+	require.NoError(t, repo.AddEvent(ctx, l.ID, "tour_3d", []byte(`{}`)))
+	require.NoError(t, repo.SetContact(ctx, l.ID, lead.ContactRequest{Name: "Maria", Phone: "54977776666"}, []byte(`{}`)))
+	got, err := repo.Get(ctx, l.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Maria", got.Name)
+	assert.Equal(t, 3, got.EventsCount, "visita, tour e contato")
+	assert.ElementsMatch(t, []string{"visita", "tour_3d", "contato"}, got.Signals)
+	assert.Equal(t, []string{}, other.Signals, "sem eventos, lista vazia (não nula)")
+	assert.False(t, got.LastActivityAt.Before(before))
+
+	events, err := repo.Events(ctx, l.ID)
+	require.NoError(t, err)
+	require.Len(t, events, 3)
+	assert.Equal(t, lead.EventVisit, events[0].Kind)
+	assert.JSONEq(t, `{"codigo":"FAB-0001"}`, string(events[0].Data))
+	assert.Equal(t, lead.EventContact, events[2].Kind)
+	assert.JSONEq(t, `{}`, string(events[2].Data), "o primeiro contato não tem dados anteriores")
+
+	require.NoError(t, repo.SetContact(ctx, l.ID, lead.ContactRequest{Name: "Maria Lima", Phone: "54977776666"},
+		[]byte(`{"antes":{"nome":"Maria","whatsapp":"54977776666"}}`)))
+	got, err = repo.Get(ctx, l.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Maria Lima", got.Name)
+	events, err = repo.Events(ctx, l.ID)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"antes":{"nome":"Maria","whatsapp":"54977776666"}}`, string(events[3].Data), "a troca guarda os dados anteriores")
+
+	// Proposta do cliente: registro, evento "proposta", etapa proposta e contagem de não vistas.
+	p1, err := repo.AddProposal(ctx, l.ID, lead.Proposal{Author: lead.AuthorClient, Summary: "entrada de 150 mil", Note: "carro na entrada",
+		WantsContract: true, Condition: []byte(`{"preco":370000,"entrada":150000}`)})
+	require.NoError(t, err)
+	assert.Equal(t, lead.AuthorClient, p1.Author)
+	assert.Nil(t, p1.SeenAt)
+	assert.JSONEq(t, `{"preco":370000,"entrada":150000}`, string(p1.Condition))
+	got, err = repo.Get(ctx, l.ID)
+	require.NoError(t, err)
+	assert.Equal(t, lead.StageProposal, got.Stage, "a proposta leva o cliente à etapa proposta")
+	assert.Equal(t, 1, got.NewProposals)
+	assert.Contains(t, got.Signals, lead.EventProposal)
+	events, err = repo.Events(ctx, l.ID)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"proposal_id":"`+p1.ID+`","resumo":"entrada de 150 mil","observacao":"carro na entrada","autorizou_contrato":true}`,
+		string(events[len(events)-1].Data))
+
+	sum, err := repo.Summary(ctx, brokerID)
+	require.NoError(t, err)
+	assert.Equal(t, lead.Summary{Leads: 1, Identified: 1, NewProposals: 1,
+		ByStage: map[string]int{lead.StageNew: 0, lead.StageWorking: 0, lead.StageProposal: 1, lead.StageSold: 0, lead.StageLost: 0}}, sum)
+
+	require.NoError(t, repo.MarkProposalsSeen(ctx, l.ID))
+	// Ajuste do corretor: não gera evento nem conta como nova.
+	p2, err := repo.AddProposal(ctx, l.ID, lead.Proposal{Author: lead.AuthorBroker, BasedOn: &p1.ID, Note: "desconto", Condition: []byte(`{"preco":360000}`)})
+	require.NoError(t, err)
+	require.NotNil(t, p2.BasedOn)
+	assert.Equal(t, p1.ID, *p2.BasedOn)
+	proposals, err := repo.Proposals(ctx, l.ID)
+	require.NoError(t, err)
+	require.Len(t, proposals, 2)
+	assert.Equal(t, p2.ID, proposals[0].ID, "mais recente primeiro")
+	assert.NotNil(t, proposals[1].SeenAt, "a do cliente foi vista")
+	got, err = repo.Get(ctx, l.ID)
+	require.NoError(t, err)
+	assert.Zero(t, got.NewProposals)
+	_, err = repo.AddProposal(ctx, l.ID, lead.Proposal{Author: lead.AuthorBroker, BasedOn: ptr("nao-e-uuid"), Condition: []byte(`{}`)})
+	assert.ErrorIs(t, err, lead.ErrNotFound, "base inválida")
+
+	// Desfecho: venda fechada guarda valor e proposta; voltar para uma etapa em aberto limpa.
+	upd, err := repo.SetStage(ctx, l.ID, lead.StageRequest{Stage: lead.StageSold, SaleValue: 360000, ProposalID: p2.ID, Note: "assinado"})
+	require.NoError(t, err)
+	assert.Equal(t, lead.StageSold, upd.Stage)
+	require.NotNil(t, upd.SaleValue)
+	assert.InDelta(t, 360000, *upd.SaleValue, 0.001)
+	require.NotNil(t, upd.SaleProposalID)
+	assert.Equal(t, p2.ID, *upd.SaleProposalID)
+	assert.NotNil(t, upd.OutcomeAt)
+	assert.Equal(t, "assinado", upd.OutcomeNote)
+	sum, err = repo.Summary(ctx, brokerID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, sum.Sales)
+	assert.InDelta(t, 360000, sum.SalesValue, 0.001)
+	_, err = repo.AddProposal(ctx, l.ID, lead.Proposal{Author: lead.AuthorBroker, Condition: []byte(`{"preco":1}`)})
+	require.NoError(t, err)
+	got, err = repo.Get(ctx, l.ID)
+	require.NoError(t, err)
+	assert.Equal(t, lead.StageSold, got.Stage, "proposta nova não mexe no desfecho")
+
+	upd, err = repo.SetStage(ctx, l.ID, lead.StageRequest{Stage: lead.StageLost, Note: "comprou outro"})
+	require.NoError(t, err)
+	assert.Nil(t, upd.SaleValue)
+	assert.Equal(t, "comprou outro", upd.OutcomeNote)
+	upd, err = repo.SetStage(ctx, l.ID, lead.StageRequest{Stage: lead.StageProposal})
+	require.NoError(t, err)
+	assert.Nil(t, upd.OutcomeAt, "reabrir limpa o desfecho")
+	assert.Empty(t, upd.OutcomeNote)
+	for _, bad := range []string{"00000000-0000-0000-0000-000000000000", "nao-e-uuid"} {
+		_, err = repo.SetStage(ctx, bad, lead.StageRequest{Stage: lead.StageProposal})
+		assert.ErrorIs(t, err, lead.ErrNotFound)
+		_, err = repo.Get(ctx, bad)
+		assert.ErrorIs(t, err, lead.ErrNotFound)
+	}
+
+	// ADR-0016: o mesmo WhatsApp em outro navegador (e por outro link) junta no cadastro mais antigo.
+	l3, err := repo.Create(ctx, devID, otherBroker, "hash-3")
+	require.NoError(t, err)
+	require.NoError(t, repo.SetContact(ctx, l3.ID, lead.ContactRequest{Name: "Maria Nova", Phone: "54977776666"}, []byte(`{}`)))
+	p3, err := repo.AddProposal(ctx, l3.ID, lead.Proposal{Author: lead.AuthorClient, Summary: "outra", Condition: []byte(`{}`), ClientName: "Maria Nova", ClientPhone: "54977776666"})
+	require.NoError(t, err)
+	assert.Equal(t, "54977776666", p3.ClientPhone)
+	kept, err := repo.MergeByPhone(ctx, l3.ID)
+	require.NoError(t, err)
+	assert.Equal(t, l.ID, kept, "fica o mais antigo")
+	viaToken, err := repo.FindByToken(ctx, "hash-3")
+	require.NoError(t, err)
+	assert.Equal(t, l.ID, viaToken.ID, "o token do navegador juntado abre o cadastro que ficou")
+	assert.Equal(t, "Maria Nova", viaToken.Name, "com o nome mais recente")
+	assert.Equal(t, brokerID, viaToken.BrokerID, "e o dono da primeira visita")
+	_, err = repo.Get(ctx, l3.ID)
+	assert.ErrorIs(t, err, lead.ErrNotFound, "o juntado some das listas")
+	merged, err := repo.Proposals(ctx, l.ID)
+	require.NoError(t, err)
+	assert.Equal(t, p3.ID, merged[0].ID, "a proposta veio junto")
+	kept, err = repo.MergeByPhone(ctx, l.ID)
+	require.NoError(t, err)
+	assert.Equal(t, l.ID, kept, "sem duplicado, nada muda")
+	_, err = repo.MergeByPhone(ctx, "nao-e-uuid")
+	assert.ErrorIs(t, err, lead.ErrNotFound)
+
+	mine, err := repo.List(ctx, lead.Filter{BrokerID: brokerID})
+	require.NoError(t, err)
+	require.Len(t, mine, 1)
+	assert.Equal(t, l.ID, mine[0].ID)
+	all, err := repo.List(ctx, lead.Filter{})
+	require.NoError(t, err)
+	assert.Len(t, all, 2)
+	byStage, err := repo.List(ctx, lead.Filter{Stage: lead.StageNew})
+	require.NoError(t, err)
+	require.Len(t, byStage, 1)
+	assert.Equal(t, other.ID, byStage[0].ID)
+	byDev, err := repo.List(ctx, lead.Filter{DevelopmentID: devID})
+	require.NoError(t, err)
+	assert.Len(t, byDev, 2)
+	none, err := repo.List(ctx, lead.Filter{BrokerID: "nao-e-uuid"})
+	require.NoError(t, err)
+	assert.Empty(t, none, "id malformado no filtro só não acha nada")
+
+	require.NoError(t, repo.AddEvent(ctx, l.ID, "tempo", []byte(`{"h-neg":30}`)))
+	require.NoError(t, repo.AddEvent(ctx, l.ID, "secao", []byte(`{"id":"h-neg"}`)))
+	feed, err := repo.Activity(ctx, brokerID)
+	require.NoError(t, err)
+	require.Len(t, feed, 7, "seções vistas e tempo ficam fora do feed (com contato e proposta do cadastro juntado)")
+	assert.Equal(t, lead.EventProposal, feed[0].Kind, "mais recente primeiro")
+	assert.Equal(t, "Maria Nova", feed[0].LeadName, "nome mais recente, depois de juntar")
+	allFeed, err := repo.Activity(ctx, "")
+	require.NoError(t, err)
+	assert.Len(t, allFeed, 7)
+
+	total, err := repo.Summary(ctx, "")
+	require.NoError(t, err)
+	assert.Equal(t, 2, total.Leads)
+
+	_, err = database.ExecContext(ctx, `UPDATE users SET active = false WHERE id = $1`, userID)
+	require.NoError(t, err)
+	_, err = repo.ShowroomBroker(ctx, "FAB-0001")
+	assert.ErrorIs(t, err, lead.ErrShowroomNotFound, "corretor desativado derruba o link")
+
+	require.NoError(t, database.Close())
+	_, err = repo.ShowroomBroker(ctx, "FAB-0001")
+	assert.Error(t, err)
+	_, err = repo.BrokerIDByUser(ctx, userID)
+	assert.Error(t, err)
+	_, err = repo.Create(ctx, devID, brokerID, "h3")
+	assert.Error(t, err)
+	assert.Error(t, repo.AddEvent(ctx, l.ID, "x", []byte(`{}`)))
+	assert.Error(t, repo.SetContact(ctx, l.ID, lead.ContactRequest{}, []byte(`{}`)))
+	_, err = repo.List(ctx, lead.Filter{})
+	assert.Error(t, err)
+	_, err = repo.Events(ctx, l.ID)
+	assert.Error(t, err)
+	_, err = repo.SetStage(ctx, l.ID, lead.StageRequest{Stage: lead.StageNew})
+	assert.Error(t, err)
+	_, err = repo.Proposals(ctx, l.ID)
+	assert.Error(t, err)
+	_, err = repo.AddProposal(ctx, l.ID, lead.Proposal{Author: lead.AuthorClient, Condition: []byte(`{}`)})
+	assert.Error(t, err)
+	assert.Error(t, repo.MarkProposalsSeen(ctx, l.ID))
+	_, err = repo.MergeByPhone(ctx, l.ID)
+	assert.Error(t, err)
+	_, err = repo.Summary(ctx, "")
+	assert.Error(t, err)
+	_, err = repo.Activity(ctx, "")
+	assert.Error(t, err)
+}
+
+func ptr(s string) *string { return &s }

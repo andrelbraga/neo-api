@@ -1,0 +1,36 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: neo360_db
+    environment:
+      POSTGRES_USER: neo360
+      POSTGRES_PASSWORD: neo360
+      POSTGRES_DB: neo360
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./devops/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neo360 -d neo360"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    container_name: neo360_api
+    ports:
+      - "8081:8081"
+    environment:
+      APP_ENV: local
+      PORT: 8081
+      DATABASE_URL: postgres://neo360:neo360@db:5432/neo360?sslmode=disable
+      ALLOWED_ORIGINS: http://localhost:5174
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
