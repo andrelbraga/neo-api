@@ -69,7 +69,7 @@ func (h *DevelopmentHandler) respond(c *gin.Context, status int, data any, err e
 		api.RespondError(c, http.StatusConflict, err.Error())
 	case errors.Is(err, development.ErrNameRequired), errors.Is(err, development.ErrInvalidSlug),
 		errors.Is(err, development.ErrInvalidStatus), errors.Is(err, development.ErrInvalidState),
-		errors.Is(err, development.ErrInvalidURL), errors.Is(err, development.ErrInvalidHighlight),
+		errors.Is(err, development.ErrInvalidURL), errors.Is(err, development.ErrInvalidHighlight), errors.Is(err, development.ErrInvalidLayout),
 		errors.Is(err, development.ErrTooManyItems), errors.Is(err, development.ErrFieldTooLong),
 		errors.Is(err, development.ErrDeveloperNotFound):
 		api.RespondError(c, http.StatusBadRequest, err.Error())

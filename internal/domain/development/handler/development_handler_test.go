@@ -88,6 +88,7 @@ func TestDevelopmentHandler(t *testing.T) {
 		{development.ErrInvalidState, http.StatusBadRequest},
 		{development.ErrInvalidURL, http.StatusBadRequest},
 		{development.ErrInvalidHighlight, http.StatusBadRequest},
+		{development.ErrInvalidLayout, http.StatusBadRequest},
 		{development.ErrTooManyItems, http.StatusBadRequest},
 		{development.ErrFieldTooLong, http.StatusBadRequest},
 		{development.ErrDeveloperNotFound, http.StatusBadRequest},

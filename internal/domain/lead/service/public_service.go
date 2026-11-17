@@ -42,8 +42,9 @@ func (s *PublicService) Showroom(ctx context.Context, slug, code string) (lead.S
 }
 
 // Visit registra a abertura do link. Com um token já conhecido para o mesmo empreendimento, o cliente
-// continua com o dono de antes, mesmo que tenha chegado pelo link de outro corretor (RN-03.1).
-func (s *PublicService) Visit(ctx context.Context, slug, code, token string) (lead.Visit, error) {
+// continua com o dono de antes, mesmo que tenha chegado pelo link de outro corretor (RN-03.1). O cliente
+// novo guarda o layout da apresentação em que chegou; quem volta mantém o da primeira visita (ADR-0019).
+func (s *PublicService) Visit(ctx context.Context, slug, code, token, layout string) (lead.Visit, error) {
 	room, err := s.Showroom(ctx, slug, code)
 	if err != nil {
 		return lead.Visit{}, err
@@ -65,7 +66,7 @@ func (s *PublicService) Visit(ctx context.Context, slug, code, token string) (le
 	if err != nil {
 		return lead.Visit{}, err
 	}
-	l, err := s.repo.Create(ctx, room.Development.ID, room.Broker.ID, hash(token))
+	l, err := s.repo.Create(ctx, room.Development.ID, room.Broker.ID, hash(token), lead.NormalizeLayout(layout))
 	if err != nil {
 		return lead.Visit{}, err
 	}

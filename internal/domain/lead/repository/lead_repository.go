@@ -18,7 +18,7 @@ const (
 		(SELECT count(*) FROM lead_events e WHERE e.lead_id = l.id),
 		(SELECT count(*) FROM proposals p WHERE p.lead_id = l.id AND p.author = 'cliente' AND p.seen_at IS NULL),
 		(SELECT COALESCE(string_agg(DISTINCT e.kind, ','), '') FROM lead_events e WHERE e.lead_id = l.id),
-		l.last_activity_at, l.created_at, l.outcome_at, l.sale_value, l.sale_proposal_id, l.outcome_note`
+		l.last_activity_at, l.created_at, l.outcome_at, l.sale_value, l.sale_proposal_id, l.outcome_note, l.layout`
 	from = ` FROM leads l JOIN developments d ON d.id = l.development_id JOIN brokers b ON b.id = l.broker_id`
 
 	queryShowroomBroker = `
@@ -33,7 +33,7 @@ const (
 	queryList = `SELECT ` + columns + from + `
 		WHERE l.merged_into IS NULL AND ($1 = '' OR l.broker_id::text = $1) AND ($2 = '' OR l.development_id::text = $2) AND ($3 = '' OR l.stage = $3)
 		ORDER BY l.last_activity_at DESC LIMIT 500`
-	queryCreate = `INSERT INTO leads (development_id, broker_id, token_hash) VALUES ($1, $2, $3) RETURNING id`
+	queryCreate = `INSERT INTO leads (development_id, broker_id, token_hash, layout) VALUES ($1, $2, $3, $4) RETURNING id`
 	// Eventos do cliente contam como atividade.
 	queryAddEvent = `
 		WITH e AS (INSERT INTO lead_events (lead_id, kind, data) VALUES ($1, $2, $3) RETURNING lead_id)
@@ -82,6 +82,13 @@ const (
 			count(*) FILTER (WHERE l.stage = 'fechado'),
 			count(*) FILTER (WHERE l.stage = 'encerrado')
 		FROM leads l WHERE l.merged_into IS NULL AND ($1 = '' OR l.broker_id::text = $1)`
+	// Conversão por layout (ADR-0019): clientes, com proposta do cliente e com venda fechada.
+	queryByLayout = `
+		SELECT l.layout, count(*),
+			count(*) FILTER (WHERE EXISTS (SELECT 1 FROM proposals p WHERE p.lead_id = l.id AND p.author = 'cliente')),
+			count(*) FILTER (WHERE l.stage = 'fechado'),
+			COALESCE(sum(l.sale_value) FILTER (WHERE l.stage = 'fechado'), 0)
+		FROM leads l WHERE l.merged_into IS NULL AND ($1 = '' OR l.broker_id::text = $1) GROUP BY l.layout`
 	// Cadastros do mesmo WhatsApp no mesmo empreendimento, o mais antigo primeiro: ele fica, os outros juntam.
 	queryDuplicates = `
 		SELECT d.id FROM leads l JOIN leads d ON d.development_id = l.development_id AND d.phone = l.phone AND d.merged_into IS NULL
@@ -137,9 +144,9 @@ func (r *LeadRepository) FindByToken(ctx context.Context, tokenHash string) (lea
 	return l, notFound(err, "find lead by token")
 }
 
-func (r *LeadRepository) Create(ctx context.Context, developmentID, brokerID, tokenHash string) (lead.Lead, error) {
+func (r *LeadRepository) Create(ctx context.Context, developmentID, brokerID, tokenHash, layout string) (lead.Lead, error) {
 	var id string
-	if err := r.db.QueryRowContext(ctx, queryCreate, developmentID, brokerID, tokenHash).Scan(&id); err != nil {
+	if err := r.db.QueryRowContext(ctx, queryCreate, developmentID, brokerID, tokenHash, layout).Scan(&id); err != nil {
 		return lead.Lead{}, fmt.Errorf("create lead: %w", err)
 	}
 	return r.Get(ctx, id)
@@ -335,7 +342,21 @@ func (r *LeadRepository) Summary(ctx context.Context, brokerID string) (lead.Sum
 	s.Sales = sold
 	s.ByStage[lead.StageNew], s.ByStage[lead.StageWorking], s.ByStage[lead.StageProposal] = n, w, p
 	s.ByStage[lead.StageSold], s.ByStage[lead.StageLost] = sold, lost
-	return s, nil
+	s.ByLayout = map[string]lead.LayoutStats{"a": {}, "b": {}}
+	rows, err := r.db.QueryContext(ctx, queryByLayout, brokerID)
+	if err != nil {
+		return s, fmt.Errorf("summary by layout: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	for rows.Next() {
+		var layout string
+		var st lead.LayoutStats
+		if err := rows.Scan(&layout, &st.Leads, &st.WithProposal, &st.Sales, &st.SalesValue); err != nil {
+			return s, fmt.Errorf("summary by layout: %w", err)
+		}
+		s.ByLayout[layout] = st
+	}
+	return s, rows.Err()
 }
 
 // Activity devolve os 30 eventos mais recentes de um corretor, ou de todos com brokerID vazio.
@@ -370,7 +391,7 @@ func scan(s scanner) (lead.Lead, error) {
 	var saleProposal sql.NullString
 	err := s.Scan(&l.ID, &l.DevelopmentID, &l.DevelopmentName, &l.DevelopmentSlug, &l.BrokerID, &l.BrokerName, &l.BrokerCode,
 		&l.Name, &l.Phone, &l.Stage, &l.EventsCount, &l.NewProposals, &signals, &l.LastActivityAt, &l.CreatedAt,
-		&outcomeAt, &saleValue, &saleProposal, &l.OutcomeNote)
+		&outcomeAt, &saleValue, &saleProposal, &l.OutcomeNote, &l.Layout)
 	if outcomeAt.Valid {
 		l.OutcomeAt = &outcomeAt.Time
 	}

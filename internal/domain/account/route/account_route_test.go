@@ -23,7 +23,8 @@ func TestRegister(t *testing.T) {
 	for _, r := range app.Router().Routes() {
 		got[r.Method+" "+r.Path] = true
 	}
-	for _, want := range []string{"POST /api/auth/login", "POST /api/auth/signup", "GET /api/auth/me", "PUT /api/me/profile"} {
+	for _, want := range []string{"POST /api/auth/login", "POST /api/auth/signup", "GET /api/auth/me", "PUT /api/me/profile",
+		"PUT /api/auth/password", "GET /api/admin/users", "POST /api/admin/users/:id/reset-password"} {
 		assert.True(t, got[want], want)
 	}
 }

@@ -15,10 +15,27 @@ import (
 )
 
 type fakeRepo struct {
-	cred    account.Credentials
-	credErr error
-	user    account.User
-	userErr error
+	cred     account.Credentials
+	credErr  error
+	user     account.User
+	userErr  error
+	hash     string
+	hashErr  error
+	saved    *string
+	reset    *bool
+	writeErr error
+	list     []account.Account
+}
+
+func (f fakeRepo) ListAccounts(context.Context) ([]account.Account, error) { return f.list, f.userErr }
+func (f fakeRepo) PasswordHash(context.Context, string) (string, error)    { return f.hash, f.hashErr }
+func (f fakeRepo) ResetPassword(_ context.Context, _, hash string) error {
+	*f.saved, *f.reset = hash, true
+	return f.writeErr
+}
+func (f fakeRepo) ChangePassword(_ context.Context, _, hash string) error {
+	*f.saved, *f.reset = hash, false
+	return f.writeErr
 }
 
 func (f fakeRepo) Credentials(context.Context, string) (account.Credentials, error) {
@@ -54,11 +71,73 @@ func (f fakeTokens) Generate(userID, role string) (string, time.Time, error) {
 	return "tok:" + userID + ":" + role, time.Unix(100, 0), f.err
 }
 
-type fakeComparer struct{ calls []string }
+type fakeComparer struct {
+	calls   []string
+	hashErr error
+}
 
 func (f *fakeComparer) Compare(hash, password string) bool {
 	f.calls = append(f.calls, hash)
 	return hash == "h:"+password
+}
+func (f *fakeComparer) Hash(password string) (string, error) { return "h:" + password, f.hashErr }
+
+// ADR-0020: a troca confere a senha atual (ou provisória), exige 8 caracteres e uma senha diferente.
+func TestChangePassword(t *testing.T) {
+	ctx := context.Background()
+	saved, reset := "", true
+	repo := fakeRepo{user: account.User{Role: authz.RoleAdmin}, hash: "h:k7Hm-2pQx-9sWd", saved: &saved, reset: &reset}
+	s := NewAccountService(repo, &fakeBrokers{}, fakeTokens{}, &fakeComparer{})
+
+	u, err := s.ChangePassword(ctx, "u1", account.PasswordChange{Current: "k7Hm-2pQx-9sWd", New: "minha-senha-nova"})
+	require.NoError(t, err)
+	assert.Equal(t, "u1", u.ID)
+	assert.Equal(t, "h:minha-senha-nova", saved, "grava só o hash")
+	assert.False(t, reset, "a troca tira a obrigação")
+
+	_, err = s.ChangePassword(ctx, "u1", account.PasswordChange{Current: "errada", New: "minha-senha-nova"})
+	assert.ErrorIs(t, err, account.ErrWrongPassword)
+	_, err = s.ChangePassword(ctx, "u1", account.PasswordChange{Current: "k7Hm-2pQx-9sWd", New: "curta"})
+	assert.ErrorIs(t, err, account.ErrWeakPassword)
+	_, err = s.ChangePassword(ctx, "u1", account.PasswordChange{Current: "k7Hm-2pQx-9sWd", New: "k7Hm-2pQx-9sWd"})
+	assert.ErrorIs(t, err, account.ErrSamePassword)
+
+	for name, svc := range map[string]*AccountService{
+		"hash":   NewAccountService(fakeRepo{hashErr: errors.New("hash"), saved: &saved, reset: &reset}, &fakeBrokers{}, fakeTokens{}, &fakeComparer{}),
+		"gerar":  NewAccountService(repo, &fakeBrokers{}, fakeTokens{}, &fakeComparer{hashErr: errors.New("gerar")}),
+		"gravar": NewAccountService(fakeRepo{hash: repo.hash, writeErr: errors.New("gravar"), saved: &saved, reset: &reset}, &fakeBrokers{}, fakeTokens{}, &fakeComparer{}),
+	} {
+		_, err = svc.ChangePassword(ctx, "u1", account.PasswordChange{Current: "k7Hm-2pQx-9sWd", New: "minha-senha-nova"})
+		assert.EqualError(t, err, name)
+	}
+}
+
+// ADR-0020: o reset gera uma senha provisória, grava só o hash e marca a troca no primeiro acesso.
+func TestResetPassword(t *testing.T) {
+	ctx := context.Background()
+	saved, reset := "", false
+	s := NewAccountService(fakeRepo{saved: &saved, reset: &reset}, &fakeBrokers{}, fakeTokens{}, &fakeComparer{})
+	temp, err := s.ResetPassword(ctx, "u9")
+	require.NoError(t, err)
+	assert.Regexp(t, `^[a-hj-km-np-zA-HJ-NP-Z2-9]{4}-[a-hj-km-np-zA-HJ-NP-Z2-9]{4}-[a-hj-km-np-zA-HJ-NP-Z2-9]{4}$`, temp.Password)
+	assert.Equal(t, "h:"+temp.Password, saved, "o banco guarda só o hash")
+	assert.True(t, reset)
+	other, _ := s.ResetPassword(ctx, "u9")
+	assert.NotEqual(t, temp.Password, other.Password, "cada reset gera uma senha nova")
+
+	s.newTemp = func() (string, error) { return "", errors.New("rand") }
+	_, err = s.ResetPassword(ctx, "u9")
+	assert.EqualError(t, err, "rand")
+	s = NewAccountService(fakeRepo{saved: &saved, reset: &reset}, &fakeBrokers{}, fakeTokens{}, &fakeComparer{hashErr: errors.New("hash")})
+	_, err = s.ResetPassword(ctx, "u9")
+	assert.EqualError(t, err, "hash")
+	s = NewAccountService(fakeRepo{saved: &saved, reset: &reset, writeErr: account.ErrNotFound}, &fakeBrokers{}, fakeTokens{}, &fakeComparer{})
+	_, err = s.ResetPassword(ctx, "nao-existe")
+	assert.ErrorIs(t, err, account.ErrNotFound)
+
+	list, err := NewAccountService(fakeRepo{list: []account.Account{{ID: "u1"}}}, &fakeBrokers{}, fakeTokens{}, &fakeComparer{}).ListAccounts(ctx)
+	require.NoError(t, err)
+	assert.Len(t, list, 1)
 }
 
 func TestLogin(t *testing.T) {

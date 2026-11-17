@@ -39,6 +39,7 @@ func TestRequest_Validate(t *testing.T) {
 	r, err = ok().Validate()
 	require.NoError(t, err)
 	assert.Equal(t, "/showroom/bv/index.html", r.PresentationURL)
+	assert.Equal(t, LayoutA, r.DefaultLayout, "sem escolha, o layout A")
 	cases := []struct {
 		name   string
 		change func(*Request)
@@ -55,6 +56,7 @@ func TestRequest_Validate(t *testing.T) {
 		{"galeria grande", func(r *Request) { r.Gallery = make([]Image, 41) }, ErrTooManyItems},
 		{"capa javascript", func(r *Request) { r.CoverImageURL = "javascript:alert(1)" }, ErrInvalidURL},
 		{"apresentação externa", func(r *Request) { r.PresentationURL = "https://x.example/p.html" }, ErrInvalidURL},
+		{"layout desconhecido", func(r *Request) { r.DefaultLayout = "c" }, ErrInvalidLayout},
 		{"apresentação protocolo relativo", func(r *Request) { r.PresentationURL = "//x.example/p.html" }, ErrInvalidURL},
 		{"tour http", func(r *Request) { r.TourURL = "http://x" }, ErrInvalidURL},
 		{"protocolo relativo", func(r *Request) { r.TourURL = "//evil.example" }, ErrInvalidURL},
@@ -72,4 +74,10 @@ func TestRequest_Validate(t *testing.T) {
 			assert.ErrorIs(t, err, tc.want)
 		})
 	}
+}
+
+func TestRequest_Layout(t *testing.T) {
+	r, err := Request{Name: "Boa Vista", Status: StatusReady, DefaultLayout: " B "}.Validate()
+	require.NoError(t, err)
+	assert.Equal(t, LayoutB, r.DefaultLayout)
 }

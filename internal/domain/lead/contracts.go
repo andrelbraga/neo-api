@@ -10,7 +10,7 @@ type Repository interface {
 	ShowroomBroker(ctx context.Context, code string) (PublicBroker, error)
 	BrokerIDByUser(ctx context.Context, userID string) (string, error)
 	FindByToken(ctx context.Context, tokenHash string) (Lead, error)
-	Create(ctx context.Context, developmentID, brokerID, tokenHash string) (Lead, error)
+	Create(ctx context.Context, developmentID, brokerID, tokenHash, layout string) (Lead, error)
 	AddEvent(ctx context.Context, leadID, kind string, data []byte) error
 	SetContact(ctx context.Context, leadID string, r ContactRequest, eventData []byte) error
 	Get(ctx context.Context, id string) (Lead, error)
@@ -37,7 +37,7 @@ type Developments interface {
 // PublicService atende o cliente no showroom, identificado pelo token da visita.
 type PublicService interface {
 	Showroom(ctx context.Context, slug, code string) (Showroom, error)
-	Visit(ctx context.Context, slug, code, token string) (Visit, error)
+	Visit(ctx context.Context, slug, code, token, layout string) (Visit, error)
 	Track(ctx context.Context, token string, r EventRequest) error
 	Contact(ctx context.Context, token string, r ContactRequest) (Visit, error)
 	Propose(ctx context.Context, token string, r ProposalRequest) (Proposal, error)

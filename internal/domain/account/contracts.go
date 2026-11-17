@@ -10,6 +10,12 @@ import (
 type Repository interface {
 	Credentials(ctx context.Context, email string) (Credentials, error)
 	User(ctx context.Context, id string) (User, error)
+	ListAccounts(ctx context.Context) ([]Account, error)
+	PasswordHash(ctx context.Context, id string) (string, error)
+	// ResetPassword grava o hash da senha provisória e marca a troca obrigatória.
+	ResetPassword(ctx context.Context, id, hash string) error
+	// ChangePassword grava o hash da senha nova e tira a troca obrigatória.
+	ChangePassword(ctx context.Context, id, hash string) error
 }
 
 type Service interface {
@@ -17,6 +23,9 @@ type Service interface {
 	Signup(ctx context.Context, r broker.CreateRequest) (Session, error)
 	Me(ctx context.Context, userID string) (User, error)
 	UpdateProfile(ctx context.Context, userID string, p broker.Profile) (User, error)
+	ChangePassword(ctx context.Context, userID string, r PasswordChange) (User, error)
+	ListAccounts(ctx context.Context) ([]Account, error)
+	ResetPassword(ctx context.Context, userID string) (TemporaryPassword, error)
 }
 
 // Brokers é o que a conta usa do corretor: criar no cadastro aberto, ler e atualizar o perfil.
@@ -30,7 +39,8 @@ type Tokens interface {
 	Generate(userID, role string) (string, time.Time, error)
 }
 
-type Comparer interface {
+type Hasher interface {
+	Hash(password string) (string, error)
 	Compare(hash, password string) bool
 }
 

@@ -52,12 +52,13 @@ func TestLeadRepository_Integration(t *testing.T) {
 		assert.ErrorIs(t, err, lead.ErrNotBroker)
 	}
 
-	l, err := repo.Create(ctx, devID, brokerID, "hash-1")
+	l, err := repo.Create(ctx, devID, brokerID, "hash-1", "b")
 	require.NoError(t, err)
 	assert.Equal(t, lead.StageNew, l.Stage)
+	assert.Equal(t, "b", l.Layout, "o layout da primeira visita fica no cliente")
 	assert.Equal(t, "Boa Vista Residencial", l.DevelopmentName)
 	assert.Equal(t, "FAB-0001", l.BrokerCode)
-	other, err := repo.Create(ctx, devID, otherBroker, "hash-2")
+	other, err := repo.Create(ctx, devID, otherBroker, "hash-2", "a")
 	require.NoError(t, err)
 
 	found, err := repo.FindByToken(ctx, "hash-1")
@@ -147,6 +148,8 @@ func TestLeadRepository_Integration(t *testing.T) {
 	sum, err = repo.Summary(ctx, brokerID)
 	require.NoError(t, err)
 	assert.Equal(t, 1, sum.Sales)
+	assert.Equal(t, lead.LayoutStats{Leads: 1, WithProposal: 1, Sales: 1, SalesValue: 360000}, sum.ByLayout["b"], "conversão do layout B")
+	assert.Equal(t, lead.LayoutStats{}, sum.ByLayout["a"])
 	assert.InDelta(t, 360000, sum.SalesValue, 0.001)
 	_, err = repo.AddProposal(ctx, l.ID, lead.Proposal{Author: lead.AuthorBroker, Condition: []byte(`{"preco":1}`)})
 	require.NoError(t, err)
@@ -170,7 +173,7 @@ func TestLeadRepository_Integration(t *testing.T) {
 	}
 
 	// ADR-0016: o mesmo WhatsApp em outro navegador (e por outro link) junta no cadastro mais antigo.
-	l3, err := repo.Create(ctx, devID, otherBroker, "hash-3")
+	l3, err := repo.Create(ctx, devID, otherBroker, "hash-3", "a")
 	require.NoError(t, err)
 	require.NoError(t, repo.SetContact(ctx, l3.ID, lead.ContactRequest{Name: "Maria Nova", Phone: "54977776666"}, []byte(`{}`)))
 	p3, err := repo.AddProposal(ctx, l3.ID, lead.Proposal{Author: lead.AuthorClient, Summary: "outra", Condition: []byte(`{}`), ClientName: "Maria Nova", ClientPhone: "54977776666"})
@@ -238,7 +241,7 @@ func TestLeadRepository_Integration(t *testing.T) {
 	assert.Error(t, err)
 	_, err = repo.BrokerIDByUser(ctx, userID)
 	assert.Error(t, err)
-	_, err = repo.Create(ctx, devID, brokerID, "h3")
+	_, err = repo.Create(ctx, devID, brokerID, "h3", "a")
 	assert.Error(t, err)
 	assert.Error(t, repo.AddEvent(ctx, l.ID, "x", []byte(`{}`)))
 	assert.Error(t, repo.SetContact(ctx, l.ID, lead.ContactRequest{}, []byte(`{}`)))

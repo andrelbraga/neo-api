@@ -18,6 +18,7 @@ import (
 type fake struct {
 	err    error
 	token  string
+	layout string
 	user   string
 	filter lead.Filter
 }
@@ -25,8 +26,8 @@ type fake struct {
 func (f *fake) Showroom(context.Context, string, string) (lead.Showroom, error) {
 	return lead.Showroom{}, f.err
 }
-func (f *fake) Visit(_ context.Context, _, _, token string) (lead.Visit, error) {
-	f.token = token
+func (f *fake) Visit(_ context.Context, _, _, token, layout string) (lead.Visit, error) {
+	f.token, f.layout = token, layout
 	return lead.Visit{}, f.err
 }
 func (f *fake) Track(_ context.Context, token string, _ lead.EventRequest) error {
@@ -133,6 +134,9 @@ func TestLeadHandler(t *testing.T) {
 	f = &fake{}
 	do(f, http.MethodPost, "/public/lead/events", `{}`)
 	assert.Equal(t, "tok", f.token, "o token vem do cabeçalho")
+	f = &fake{}
+	do(f, http.MethodPost, "/public/showroom/bv/FAB-0001/visit?layout=b", "")
+	assert.Equal(t, "b", f.layout, "o layout vem da query da visita")
 	f = &fake{}
 	do(f, http.MethodPost, "/public/lead/proposals", `{}`)
 	assert.Equal(t, "tok", f.token, "a proposta também vem com o token da visita")

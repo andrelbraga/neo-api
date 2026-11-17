@@ -16,8 +16,9 @@ import (
 )
 
 type fakeService struct {
-	err  error
-	user string
+	err    error
+	user   string
+	target string
 }
 
 func (f *fakeService) Login(context.Context, account.LoginRequest) (account.Session, error) {
@@ -34,6 +35,15 @@ func (f *fakeService) UpdateProfile(_ context.Context, id string, _ broker.Profi
 	f.user = id
 	return account.User{ID: id}, f.err
 }
+func (f *fakeService) ChangePassword(_ context.Context, id string, _ account.PasswordChange) (account.User, error) {
+	f.user = id
+	return account.User{ID: id}, f.err
+}
+func (f *fakeService) ListAccounts(context.Context) ([]account.Account, error) { return nil, f.err }
+func (f *fakeService) ResetPassword(_ context.Context, id string) (account.TemporaryPassword, error) {
+	f.target = id
+	return account.TemporaryPassword{Password: "abcd-efgh-jkmn"}, f.err
+}
 
 type nopLog struct{}
 
@@ -48,6 +58,9 @@ func do(svc account.Service, method, path, body string) *httptest.ResponseRecord
 	r.POST("/auth/signup", h.Signup)
 	r.GET("/auth/me", h.Me)
 	r.PUT("/me/profile", h.UpdateProfile)
+	r.PUT("/auth/password", h.ChangePassword)
+	r.GET("/admin/users", h.Accounts)
+	r.POST("/admin/users/:id/reset-password", h.ResetPassword)
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -63,6 +76,9 @@ var routes = []struct {
 	{http.MethodPost, "/auth/signup", `{}`, http.StatusCreated},
 	{http.MethodGet, "/auth/me", "", http.StatusOK},
 	{http.MethodPut, "/me/profile", `{}`, http.StatusOK},
+	{http.MethodPut, "/auth/password", `{}`, http.StatusOK},
+	{http.MethodGet, "/admin/users", "", http.StatusOK},
+	{http.MethodPost, "/admin/users/u9/reset-password", "", http.StatusOK},
 }
 
 func TestAccountHandler(t *testing.T) {
@@ -75,6 +91,11 @@ func TestAccountHandler(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, do(&fakeService{}, http.MethodPost, p, `{`).Code, p)
 	}
 	assert.Equal(t, http.StatusBadRequest, do(&fakeService{}, http.MethodPut, "/me/profile", `{`).Code)
+	assert.Equal(t, http.StatusBadRequest, do(&fakeService{}, http.MethodPut, "/auth/password", `{`).Code)
+	reset := &fakeService{}
+	w := do(reset, http.MethodPost, "/admin/users/u9/reset-password", "")
+	assert.Equal(t, "u9", reset.target, "o reset vale para o usuário da rota")
+	assert.Contains(t, w.Body.String(), `"temporary_password":"abcd-efgh-jkmn"`)
 
 	cases := []struct {
 		err    error
@@ -84,6 +105,9 @@ func TestAccountHandler(t *testing.T) {
 		{account.ErrNotFound, http.StatusNotFound},
 		{broker.ErrEmailTaken, http.StatusConflict},
 		{broker.ErrInvalidPhone, http.StatusBadRequest},
+		{account.ErrWeakPassword, http.StatusBadRequest},
+		{account.ErrSamePassword, http.StatusBadRequest},
+		{account.ErrWrongPassword, http.StatusBadRequest},
 		{errors.New("db"), http.StatusInternalServerError},
 	}
 	for _, tc := range cases {

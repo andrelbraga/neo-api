@@ -39,6 +39,12 @@ type Highlight struct {
 	Value string `json:"value"`
 }
 
+// Layouts da página de apresentação (ADR-0019).
+const (
+	LayoutA = "a"
+	LayoutB = "b"
+)
+
 type Development struct {
 	ID            string  `json:"id"`
 	Slug          string  `json:"slug"`
@@ -54,12 +60,14 @@ type Development struct {
 	CoverImageURL string  `json:"cover_image_url"`
 	TourURL       string  `json:"tour_url"`
 	// PresentationURL é a página própria do empreendimento; vazia, o showroom usa o modelo padrão (ADR-0008).
-	PresentationURL string      `json:"presentation_url"`
-	Gallery         []Image     `json:"gallery"`
-	Highlights      []Highlight `json:"highlights"`
-	LeadsCount      int         `json:"leads_count"`
-	CreatedAt       time.Time   `json:"created_at"`
-	UpdatedAt       time.Time   `json:"updated_at"`
+	PresentationURL string `json:"presentation_url"`
+	// DefaultLayout é o layout da apresentação quando o link não pede um (ADR-0019): "a" ou "b".
+	DefaultLayout string      `json:"default_layout"`
+	Gallery       []Image     `json:"gallery"`
+	Highlights    []Highlight `json:"highlights"`
+	LeadsCount    int         `json:"leads_count"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
 }
 
 type Request struct {
@@ -75,6 +83,7 @@ type Request struct {
 	CoverImageURL   string      `json:"cover_image_url"`
 	TourURL         string      `json:"tour_url"`
 	PresentationURL string      `json:"presentation_url"`
+	DefaultLayout   string      `json:"default_layout"`
 	Gallery         []Image     `json:"gallery"`
 	Highlights      []Highlight `json:"highlights"`
 }
@@ -98,6 +107,10 @@ func (r Request) Validate() (Request, error) {
 	r.CoverImageURL = strings.TrimSpace(r.CoverImageURL)
 	r.TourURL = strings.TrimSpace(r.TourURL)
 	r.PresentationURL = strings.TrimSpace(r.PresentationURL)
+	r.DefaultLayout = strings.ToLower(strings.TrimSpace(r.DefaultLayout))
+	if r.DefaultLayout == "" {
+		r.DefaultLayout = LayoutA
+	}
 	if r.DeveloperID != nil && strings.TrimSpace(*r.DeveloperID) == "" {
 		r.DeveloperID = nil
 	}
@@ -116,6 +129,8 @@ func (r Request) Validate() (Request, error) {
 		return r, ErrFieldTooLong
 	case len(r.Gallery) > maxGallery || len(r.Highlights) > maxHighlights:
 		return r, ErrTooManyItems
+	case r.DefaultLayout != LayoutA && r.DefaultLayout != LayoutB:
+		return r, ErrInvalidLayout
 	}
 	for _, f := range []string{r.City, r.Headline} {
 		if utf8.RuneCountInString(f) > maxShortField {

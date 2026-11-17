@@ -26,6 +26,7 @@ func TestDevelopmentRepository_Integration(t *testing.T) {
 	assert.NotEmpty(t, bv.Highlights)
 	assert.Equal(t, "/showroom/boa-vista/maquete.html?embed=1", bv.TourURL)
 	assert.Equal(t, "/showroom/boa-vista/index.html", bv.PresentationURL, "o Boa Vista usa a apresentação do protótipo")
+	assert.Equal(t, development.LayoutA, bv.DefaultLayout, "o layout A é o padrão")
 
 	var agencyID string
 	require.NoError(t, database.QueryRowContext(ctx, `INSERT INTO organizations (kind, name) VALUES ('imobiliaria', 'Omni') RETURNING id`).Scan(&agencyID))
@@ -55,10 +56,12 @@ func TestDevelopmentRepository_Integration(t *testing.T) {
 	assert.ErrorIs(t, err, development.ErrNotFound, "rascunho não abre no showroom")
 
 	req.Slug, req.DeveloperID, req.Published, req.PresentationURL = "vale-verde", nil, true, "/showroom/vv/index.html"
+	req.DefaultLayout = development.LayoutB
 	upd, err := repo.Update(ctx, d.ID, req)
 	require.NoError(t, err)
 	assert.True(t, upd.Published)
 	assert.Equal(t, "/showroom/vv/index.html", upd.PresentationURL)
+	assert.Equal(t, development.LayoutB, upd.DefaultLayout)
 	assert.Nil(t, upd.DeveloperID)
 
 	req.Slug = "boa-vista-residencial"

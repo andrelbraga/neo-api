@@ -60,12 +60,37 @@ func (h *AccountHandler) UpdateProfile(c *gin.Context) {
 	h.respond(c, http.StatusOK, u, err, "update profile failed")
 }
 
+// ChangePassword godoc: PUT /api/auth/password
+func (h *AccountHandler) ChangePassword(c *gin.Context) {
+	var req account.PasswordChange
+	if err := c.ShouldBindJSON(&req); err != nil {
+		api.RespondError(c, http.StatusBadRequest, "corpo da requisição inválido")
+		return
+	}
+	u, err := h.svc.ChangePassword(c.Request.Context(), c.GetString("userID"), req)
+	h.respond(c, http.StatusOK, u, err, "change password failed")
+}
+
+// Accounts godoc: GET /api/admin/users
+func (h *AccountHandler) Accounts(c *gin.Context) {
+	list, err := h.svc.ListAccounts(c.Request.Context())
+	h.respond(c, http.StatusOK, list, err, "list accounts failed")
+}
+
+// ResetPassword godoc: POST /api/admin/users/:id/reset-password
+func (h *AccountHandler) ResetPassword(c *gin.Context) {
+	temp, err := h.svc.ResetPassword(c.Request.Context(), c.Param("id"))
+	h.respond(c, http.StatusOK, temp, err, "reset password failed")
+}
+
 func (h *AccountHandler) respond(c *gin.Context, status int, data any, err error, msg string) {
 	switch {
 	case errors.Is(err, account.ErrInvalidCredentials):
 		api.RespondError(c, http.StatusUnauthorized, err.Error())
 	case errors.Is(err, account.ErrNotFound):
 		api.RespondError(c, http.StatusNotFound, err.Error())
+	case errors.Is(err, account.ErrWeakPassword), errors.Is(err, account.ErrSamePassword), errors.Is(err, account.ErrWrongPassword):
+		api.RespondError(c, http.StatusBadRequest, err.Error())
 	default:
 		brokerHandler.Respond(c, h.log, status, data, err, msg)
 	}

@@ -13,7 +13,7 @@ import (
 
 const (
 	columns = `d.id, d.slug, d.name, d.developer_id, COALESCE(o.name, ''), d.city, d.state, d.status, d.published,
-		d.headline, d.description, d.cover_image_url, d.tour_url, d.presentation_url, d.gallery, d.highlights,
+		d.headline, d.description, d.cover_image_url, d.tour_url, d.presentation_url, d.default_layout, d.gallery, d.highlights,
 		(SELECT count(*) FROM leads l WHERE l.development_id = d.id), d.created_at, d.updated_at`
 	from = ` FROM developments d LEFT JOIN organizations o ON o.id = d.developer_id`
 
@@ -23,12 +23,12 @@ const (
 	queryDeveloper = `SELECT EXISTS (SELECT 1 FROM organizations WHERE id = $1 AND kind = 'incorporadora')`
 	queryCreate    = `
 		INSERT INTO developments (slug, name, developer_id, city, state, status, published, headline, description,
-			cover_image_url, tour_url, gallery, highlights, presentation_url)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`
+			cover_image_url, tour_url, gallery, highlights, presentation_url, default_layout)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`
 	queryUpdate = `
 		UPDATE developments SET slug = $2, name = $3, developer_id = $4, city = $5, state = $6, status = $7,
 			published = $8, headline = $9, description = $10, cover_image_url = $11, tour_url = $12,
-			gallery = $13, highlights = $14, presentation_url = $15, updated_at = now()
+			gallery = $13, highlights = $14, presentation_url = $15, default_layout = $16, updated_at = now()
 		WHERE id = $1 RETURNING id`
 
 	constraintSlug = "developments_slug_key"
@@ -132,7 +132,7 @@ func values(r development.Request) ([]any, error) {
 		return nil, fmt.Errorf("highlights: %w", err)
 	}
 	return []any{r.Slug, r.Name, r.DeveloperID, r.City, r.State, r.Status, r.Published, r.Headline, r.Description,
-		r.CoverImageURL, r.TourURL, gallery, highlights, r.PresentationURL}, nil
+		r.CoverImageURL, r.TourURL, gallery, highlights, r.PresentationURL, r.DefaultLayout}, nil
 }
 
 func scan(s scanner) (development.Development, error) {
@@ -140,7 +140,7 @@ func scan(s scanner) (development.Development, error) {
 	var developer sql.NullString
 	var gallery, highlights []byte
 	err := s.Scan(&d.ID, &d.Slug, &d.Name, &developer, &d.DeveloperName, &d.City, &d.State, &d.Status, &d.Published,
-		&d.Headline, &d.Description, &d.CoverImageURL, &d.TourURL, &d.PresentationURL, &gallery, &highlights, &d.LeadsCount, &d.CreatedAt, &d.UpdatedAt)
+		&d.Headline, &d.Description, &d.CoverImageURL, &d.TourURL, &d.PresentationURL, &d.DefaultLayout, &gallery, &highlights, &d.LeadsCount, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return d, err
 	}

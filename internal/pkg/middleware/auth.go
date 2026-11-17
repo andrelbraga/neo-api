@@ -23,6 +23,15 @@ type Accounts interface {
 	ActiveRole(ctx context.Context, userID string) (string, error)
 }
 
+// PasswordGate diz se o usuário está com senha provisória (ADR-0020). Opcional: quem implementa Accounts
+// e PasswordGate faz o middleware barrar o resto da API até a troca.
+type PasswordGate interface {
+	MustChangePassword(ctx context.Context, userID string) (bool, error)
+}
+
+// Com senha provisória, só estas rotas respondem: ver a própria conta e trocar a senha.
+var allowedWithTemporaryPassword = map[string]bool{"/api/auth/me": true, "/api/auth/password": true}
+
 // AuthMiddleware exige "Authorization: Bearer <jwt>" e injeta userID e role no contexto (RN-01.5).
 // Com accounts, o papel vem do banco a cada requisição: quem foi desativado perde o acesso na hora
 // e a troca de papel vale sem novo login (RN-01.5).
@@ -49,6 +58,18 @@ func AuthMiddleware(tokens TokenParser, accounts Accounts) gin.HandlerFunc {
 			}
 			if err != nil {
 				abort(c, http.StatusInternalServerError, "erro interno")
+				return
+			}
+		}
+
+		if gate, ok := accounts.(PasswordGate); ok && !allowedWithTemporaryPassword[c.FullPath()] {
+			must, err := gate.MustChangePassword(c.Request.Context(), claims.UserID)
+			if err != nil {
+				abort(c, http.StatusInternalServerError, "erro interno")
+				return
+			}
+			if must {
+				abort(c, http.StatusForbidden, "troque a senha provisória para continuar")
 				return
 			}
 		}

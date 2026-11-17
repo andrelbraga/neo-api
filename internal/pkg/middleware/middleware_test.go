@@ -121,3 +121,37 @@ func TestCORS(t *testing.T) {
 	w = serve(r, http.MethodOptions, "/x", map[string]string{"Origin": "http://localhost:5173"})
 	assert.Equal(t, http.StatusNoContent, w.Code)
 }
+
+// gatedAccounts também diz se o usuário está com senha provisória (ADR-0020).
+type gatedAccounts struct {
+	fakeAccounts
+	must bool
+	err  error
+}
+
+func (g gatedAccounts) MustChangePassword(context.Context, string) (bool, error) {
+	return g.must, g.err
+}
+
+func TestAuthMiddleware_TemporaryPassword(t *testing.T) {
+	routes := func(acc Accounts) *gin.Engine {
+		r := gin.New()
+		ok := func(c *gin.Context) { c.Status(http.StatusOK) }
+		for _, p := range []string{"/api/auth/me", "/api/auth/password", "/api/me/leads"} {
+			r.Any(p, AuthMiddleware(fakeParser{}, acc), ok)
+		}
+		return r
+	}
+	auth := map[string]string{"Authorization": "Bearer ok"}
+	r := routes(gatedAccounts{fakeAccounts: fakeAccounts{role: "corretor"}, must: true})
+	assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/api/auth/me", auth).Code, "vê a própria conta")
+	assert.Equal(t, http.StatusOK, serve(r, http.MethodPut, "/api/auth/password", auth).Code, "troca a senha")
+	w := serve(r, http.MethodGet, "/api/me/leads", auth)
+	assert.Equal(t, http.StatusForbidden, w.Code, "o resto espera a troca")
+	assert.Contains(t, w.Body.String(), "troque a senha provisória")
+
+	r = routes(gatedAccounts{fakeAccounts: fakeAccounts{role: "corretor"}})
+	assert.Equal(t, http.StatusOK, serve(r, http.MethodGet, "/api/me/leads", auth).Code, "sem senha provisória, segue normal")
+	r = routes(gatedAccounts{fakeAccounts: fakeAccounts{role: "corretor"}, err: errors.New("db")})
+	assert.Equal(t, http.StatusInternalServerError, serve(r, http.MethodGet, "/api/me/leads", auth).Code)
+}

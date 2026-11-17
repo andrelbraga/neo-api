@@ -14,4 +14,5 @@ var (
 	ErrTooManyItems      = errors.New("muitos itens na galeria ou nos destaques")
 	ErrFieldTooLong      = errors.New("campo longo demais")
 	ErrDeveloperNotFound = errors.New("incorporadora não encontrada")
+	ErrInvalidLayout     = errors.New("layout inválido: use A ou B")
 )

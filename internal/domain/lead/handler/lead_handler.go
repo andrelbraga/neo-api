@@ -32,9 +32,9 @@ func (h *LeadHandler) Showroom(c *gin.Context) {
 	h.respond(c, http.StatusOK, room, err, "showroom failed")
 }
 
-// Visit godoc: POST /api/public/showroom/:slug/:code/visit
+// Visit godoc: POST /api/public/showroom/:slug/:code/visit?layout=a|b
 func (h *LeadHandler) Visit(c *gin.Context) {
-	v, err := h.public.Visit(c.Request.Context(), c.Param("slug"), c.Param("code"), c.GetHeader(TokenHeader))
+	v, err := h.public.Visit(c.Request.Context(), c.Param("slug"), c.Param("code"), c.GetHeader(TokenHeader), c.Query("layout"))
 	h.respond(c, http.StatusOK, v, err, "visit failed")
 }
 

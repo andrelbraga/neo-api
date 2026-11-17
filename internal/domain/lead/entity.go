@@ -94,6 +94,24 @@ type Lead struct {
 	SaleValue      *float64   `json:"sale_value"`
 	SaleProposalID *string    `json:"sale_proposal_id"`
 	OutcomeNote    string     `json:"outcome_note"`
+	// Layout é o layout da apresentação na primeira visita (ADR-0019): "a" ou "b".
+	Layout string `json:"layout"`
+}
+
+// LayoutStats é a conversão de um layout: clientes, quantos enviaram proposta e quantos fecharam.
+type LayoutStats struct {
+	Leads        int     `json:"leads"`
+	WithProposal int     `json:"with_proposal"`
+	Sales        int     `json:"sales"`
+	SalesValue   float64 `json:"sales_value"`
+}
+
+// NormalizeLayout aceita só "b"; qualquer outro valor é o layout A, o padrão.
+func NormalizeLayout(s string) string {
+	if strings.EqualFold(strings.TrimSpace(s), "b") {
+		return "b"
+	}
+	return "a"
 }
 
 // Activity é um evento com o cliente e o empreendimento, para o feed "ao vivo" do painel.
@@ -151,6 +169,8 @@ type Summary struct {
 	Sales        int            `json:"sales"`
 	SalesValue   float64        `json:"sales_value"`
 	ByStage      map[string]int `json:"by_stage"`
+	// ByLayout compara os layouts A e B da apresentação (ADR-0019).
+	ByLayout map[string]LayoutStats `json:"by_layout"`
 }
 
 type EventRequest struct {
