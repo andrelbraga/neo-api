@@ -25,7 +25,7 @@ make cover                      # cobertura de internal/ (meta 80%)
 
 ## Deploy (Railway)
 
-O serviço publica a cada push na `main`. Fica no projeto neonflow do Railway, usando o Postgres dele no schema `neo360` (ADR-0018). Variáveis: `APP_ENV=production`, `DATABASE_URL`, `DB_SCHEMA=neo360`, `JWT_SECRET` (longo e aleatório), `ALLOWED_ORIGINS` (URL do app). As migrations rodam ao subir. Para criar o primeiro admin: `railway ssh --service neo-api` e `ADMIN_EMAIL=... ADMIN_NAME=... ADMIN_PASSWORD='...' ./create-admin`.
+O serviço publica a cada push na `main`. Postgres próprio no mesmo projeto do Railway, com as tabelas no schema `neo360` (ADR-0018). Variáveis: `APP_ENV=production`, `DATABASE_URL`, `DB_SCHEMA=neo360`, `JWT_SECRET` (longo e aleatório), `ALLOWED_ORIGINS` (URL do app). As migrations rodam ao subir. Para criar o primeiro admin: `railway ssh --service neo-api` e `ADMIN_EMAIL=... ADMIN_NAME=... ADMIN_PASSWORD='...' ./create-admin`.
 
 ## Documentação
 
