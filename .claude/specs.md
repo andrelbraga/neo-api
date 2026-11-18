@@ -113,3 +113,9 @@ Feito: `/entrar` com sessão ativa mostra quem está conectado, com "Continuar" 
   - Olho em todos os campos de senha; "Trocar senha" no menu da conta.
 - Conferido no Chrome: lista sem senhas, provisória escondida até o olho, login com a provisória levado à troca, API com 403 antes e 200 depois da troca.
 
+## 17/11/2026 — Edição do corretor pelo admin com e-mail e botão "Editar"
+
+- RN-01.9, P-17. `PUT /api/admin/brokers/:id` aceita `email`: normalizado, validado e único (409 se for de outra conta). Vazio mantém o atual. A troca recusada não muda nada.
+- Admin, Profissionais: botão "Editar" em cada linha e em cada cartão do celular; a edição mostra o e-mail de acesso (a senha continua fora).
+- Exclusão de corretor fica fora por ora (P-17): a cascata apagaria clientes, propostas e vendas.
+- Testes: validação do e-mail, serviço, integração do repositório (troca e conflito) e `BrokersPage` (Editar visível e troca do e-mail).

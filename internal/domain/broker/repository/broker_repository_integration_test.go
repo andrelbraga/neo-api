@@ -72,6 +72,18 @@ func TestBrokerRepository_Integration(t *testing.T) {
 	require.NoError(t, database.QueryRowContext(ctx, `SELECT name FROM users WHERE id = $1`, b.UserID).Scan(&name))
 	assert.Equal(t, "Fabiano Silva", name, "o nome da conta acompanha o cadastro")
 
+	// O admin troca o e-mail de acesso; o de outra conta é recusado (sem diferenciar maiúsculas).
+	upd, err = repo.Update(ctx, b.ID, broker.UpdateRequest{Profile: broker.Profile{FirstName: "Fabiano", LastName: "Silva", Phone: "54911112222"},
+		Email: "fabiano@exemplo.com", AgencyID: &agencyID})
+	require.NoError(t, err)
+	assert.Equal(t, "fabiano@exemplo.com", upd.Email)
+	_, err = repo.Update(ctx, b.ID, broker.UpdateRequest{Profile: broker.Profile{FirstName: "Fabiano", LastName: "Silva", Phone: "54911112222"},
+		Email: "ana@exemplo.com"})
+	assert.ErrorIs(t, err, broker.ErrEmailTaken)
+	got, err = repo.Get(ctx, b.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "fabiano@exemplo.com", got.Email, "a troca recusada não muda nada")
+
 	prof, err := repo.UpdateProfile(ctx, b.UserID, broker.Profile{FirstName: "Fabi", LastName: "Silva", Phone: "54900000000"})
 	require.NoError(t, err)
 	assert.Equal(t, "Fabi", prof.FirstName)

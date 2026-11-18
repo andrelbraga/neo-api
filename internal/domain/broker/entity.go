@@ -57,9 +57,11 @@ type CreateRequest struct {
 	AgencyID *string `json:"agency_id"`
 }
 
-// UpdateRequest é a edição pelo admin: perfil, imobiliária e situação da conta.
+// UpdateRequest é a edição pelo admin: perfil, e-mail de acesso, imobiliária e situação da conta.
+// E-mail vazio mantém o atual.
 type UpdateRequest struct {
 	Profile
+	Email    string  `json:"email"`
 	AgencyID *string `json:"agency_id"`
 	Active   bool    `json:"active"`
 }
@@ -89,9 +91,8 @@ func (r CreateRequest) Validate() (CreateRequest, error) {
 		return r, err
 	}
 	r.Profile = p
-	r.Email = strings.ToLower(strings.TrimSpace(r.Email))
-	if addr, err := mail.ParseAddress(r.Email); err != nil || addr.Address != r.Email {
-		return r, ErrInvalidEmail
+	if r.Email, err = validEmail(r.Email); err != nil {
+		return r, err
 	}
 	if utf8.RuneCountInString(r.Password) < minPassword {
 		return r, ErrWeakPassword
@@ -106,8 +107,22 @@ func (r UpdateRequest) Validate() (UpdateRequest, error) {
 		return r, err
 	}
 	r.Profile = p
+	if strings.TrimSpace(r.Email) != "" {
+		if r.Email, err = validEmail(r.Email); err != nil {
+			return r, err
+		}
+	}
 	r.AgencyID = blankToNil(r.AgencyID)
 	return r, nil
+}
+
+// validEmail normaliza o e-mail (sem espaços, minúsculo) e confere o formato.
+func validEmail(s string) (string, error) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if addr, err := mail.ParseAddress(s); err != nil || addr.Address != s {
+		return s, ErrInvalidEmail
+	}
+	return s, nil
 }
 
 // Digits deixa só os dígitos do telefone.

@@ -67,8 +67,16 @@ func TestUpdateRequest_Validate(t *testing.T) {
 	r, err := UpdateRequest{Profile: Profile{FirstName: "Ana", LastName: "Lima", Phone: "54 99999 0000"}, AgencyID: &agency, Active: true}.Validate()
 	require.NoError(t, err)
 	assert.Equal(t, "a1", *r.AgencyID)
+	assert.Empty(t, r.Email, "sem e-mail, mantém o atual")
 	_, err = UpdateRequest{Profile: Profile{FirstName: "Ana"}}.Validate()
 	assert.ErrorIs(t, err, ErrNameRequired)
+
+	ok := Profile{FirstName: "Ana", LastName: "Lima", Phone: "54999990000"}
+	r, err = UpdateRequest{Profile: ok, Email: " Ana@Exemplo.COM "}.Validate()
+	require.NoError(t, err)
+	assert.Equal(t, "ana@exemplo.com", r.Email)
+	_, err = UpdateRequest{Profile: ok, Email: "ana@"}.Validate()
+	assert.ErrorIs(t, err, ErrInvalidEmail)
 }
 
 func TestNewCode(t *testing.T) {

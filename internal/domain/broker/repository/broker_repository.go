@@ -29,7 +29,8 @@ const (
 	queryUpdateProfile = `
 		UPDATE brokers SET first_name = $2, last_name = $3, phone = $4, creci = $5, updated_at = now()
 		WHERE user_id = $1 RETURNING id`
-	queryUserSync = `UPDATE users SET name = $2, active = COALESCE($3, active), updated_at = now() WHERE id = $1`
+	queryUserSync  = `UPDATE users SET name = $2, active = COALESCE($3, active), updated_at = now() WHERE id = $1`
+	queryUserEmail = `UPDATE users SET email = $2, updated_at = now() WHERE id = $1`
 
 	constraintEmail = "users_email_key"
 	constraintCode  = "brokers_code_key"
@@ -128,6 +129,14 @@ func (r *BrokerRepository) Update(ctx context.Context, id string, req broker.Upd
 	name := broker.Broker{FirstName: req.FirstName, LastName: req.LastName}.FullName()
 	if _, err := tx.ExecContext(ctx, queryUserSync, userID, name, req.Active); err != nil {
 		return broker.Broker{}, fmt.Errorf("sync user: %w", err)
+	}
+	if req.Email != "" {
+		if _, err := tx.ExecContext(ctx, queryUserEmail, userID, req.Email); err != nil {
+			if pgerr.Unique(err, constraintEmail) {
+				return broker.Broker{}, broker.ErrEmailTaken
+			}
+			return broker.Broker{}, fmt.Errorf("update email: %w", err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return broker.Broker{}, fmt.Errorf("commit: %w", err)

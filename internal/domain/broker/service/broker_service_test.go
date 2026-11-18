@@ -109,6 +109,8 @@ func TestReadAndUpdate(t *testing.T) {
 	assert.Equal(t, "54999990000", b.Phone)
 	_, err = s.Update(ctx, "b1", broker.UpdateRequest{})
 	assert.ErrorIs(t, err, broker.ErrNameRequired)
+	_, err = s.Update(ctx, "b1", broker.UpdateRequest{Profile: broker.Profile{FirstName: "A", LastName: "B", Phone: "54999990000"}, Email: "x@"})
+	assert.ErrorIs(t, err, broker.ErrInvalidEmail, "e-mail novo inválido não chega ao banco")
 
 	b, err = s.UpdateProfile(ctx, "u1", broker.Profile{FirstName: "A", LastName: "B", Phone: "54 99999 0000"})
 	require.NoError(t, err)
