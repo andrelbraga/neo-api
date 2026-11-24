@@ -30,10 +30,12 @@ func (s *AdminService) Get(ctx context.Context, id string) (lead.Detail, error) 
 	return detail(ctx, s.repo, l)
 }
 
-func (s *AdminService) Summary(ctx context.Context) (lead.Summary, error) {
-	return s.repo.Summary(ctx, "")
+// Summary soma tudo, ou só os clientes de um corretor quando o admin vê como ele (RN-01.10).
+func (s *AdminService) Summary(ctx context.Context, brokerID string) (lead.Summary, error) {
+	return s.repo.Summary(ctx, brokerID)
 }
 
-func (s *AdminService) Activity(ctx context.Context) ([]lead.Activity, error) {
-	return s.repo.Activity(ctx, "")
+// Activity é o feed de todos, ou só dos clientes de um corretor quando o admin vê como ele (RN-01.10).
+func (s *AdminService) Activity(ctx context.Context, brokerID string) ([]lead.Activity, error) {
+	return s.repo.Activity(ctx, brokerID)
 }

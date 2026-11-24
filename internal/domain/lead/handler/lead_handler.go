@@ -130,15 +130,15 @@ func (h *LeadHandler) AdminLead(c *gin.Context) {
 	h.respond(c, http.StatusOK, d, err, "admin lead failed")
 }
 
-// AdminSummary godoc: GET /api/admin/summary
+// AdminSummary godoc: GET /api/admin/summary?broker=
 func (h *LeadHandler) AdminSummary(c *gin.Context) {
-	s, err := h.admin.Summary(c.Request.Context())
+	s, err := h.admin.Summary(c.Request.Context(), c.Query("broker"))
 	h.respond(c, http.StatusOK, s, err, "admin summary failed")
 }
 
-// AdminActivity godoc: GET /api/admin/activity
+// AdminActivity godoc: GET /api/admin/activity?broker=
 func (h *LeadHandler) AdminActivity(c *gin.Context) {
-	list, err := h.admin.Activity(c.Request.Context())
+	list, err := h.admin.Activity(c.Request.Context(), c.Query("broker"))
 	h.respond(c, http.StatusOK, list, err, "admin activity failed")
 }
 

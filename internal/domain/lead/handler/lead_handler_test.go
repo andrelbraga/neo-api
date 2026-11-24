@@ -19,6 +19,7 @@ type fake struct {
 	err    error
 	token  string
 	layout string
+	broker string
 	user   string
 	filter lead.Filter
 }
@@ -68,9 +69,15 @@ func (f fakeAdmin) List(_ context.Context, fl lead.Filter) ([]lead.Lead, error) 
 	f.filter = fl
 	return nil, f.err
 }
-func (f fakeAdmin) Get(context.Context, string) (lead.Detail, error)  { return lead.Detail{}, f.err }
-func (f fakeAdmin) Summary(context.Context) (lead.Summary, error)     { return lead.Summary{}, f.err }
-func (f fakeAdmin) Activity(context.Context) ([]lead.Activity, error) { return nil, f.err }
+func (f fakeAdmin) Get(context.Context, string) (lead.Detail, error) { return lead.Detail{}, f.err }
+func (f fakeAdmin) Summary(_ context.Context, broker string) (lead.Summary, error) {
+	f.broker = broker
+	return lead.Summary{}, f.err
+}
+func (f fakeAdmin) Activity(_ context.Context, broker string) ([]lead.Activity, error) {
+	f.broker = broker
+	return nil, f.err
+}
 
 type nopLog struct{}
 
@@ -178,4 +185,13 @@ func TestFilters(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/x?stage=proposta&development=d1&broker=b9", nil)
 	r.ServeHTTP(httptest.NewRecorder(), req)
 	assert.Equal(t, lead.Filter{Stage: "proposta", DevelopmentID: "d1"}, got, "o filtro de corretor só entra no admin")
+}
+
+// RN-01.10: o "ver como" do admin passa o corretor ao resumo e ao feed.
+func TestAdminSeeAs(t *testing.T) {
+	for _, path := range []string{"/admin/summary?broker=b7", "/admin/activity?broker=b7"} {
+		f := &fake{}
+		assert.Equal(t, http.StatusOK, do(f, http.MethodGet, path, "").Code)
+		assert.Equal(t, "b7", f.broker, path)
+	}
 }

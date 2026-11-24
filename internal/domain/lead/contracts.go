@@ -57,8 +57,9 @@ type BrokerService interface {
 type AdminService interface {
 	List(ctx context.Context, f Filter) ([]Lead, error)
 	Get(ctx context.Context, id string) (Detail, error)
-	Summary(ctx context.Context) (Summary, error)
-	Activity(ctx context.Context) ([]Activity, error)
+	// brokerID vazio é a plataforma inteira; preenchido, é o "ver como" do admin (RN-01.10).
+	Summary(ctx context.Context, brokerID string) (Summary, error)
+	Activity(ctx context.Context, brokerID string) ([]Activity, error)
 }
 
 type Logger interface {
