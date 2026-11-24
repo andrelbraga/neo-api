@@ -119,3 +119,11 @@ Feito: `/entrar` com sessão ativa mostra quem está conectado, com "Continuar" 
 - Admin, Profissionais: botão "Editar" em cada linha e em cada cartão do celular; a edição mostra o e-mail de acesso (a senha continua fora).
 - Exclusão de corretor fica fora por ora (P-17): a cascata apagaria clientes, propostas e vendas.
 - Testes: validação do e-mail, serviço, integração do repositório (troca e conflito) e `BrokersPage` (Editar visível e troca do e-mail).
+
+## 24/11/2026 — Testes de integração em dia com os layouts A e B
+
+O CI da `main` falhava desde `aad2395` em dois testes de integração, ambos desatualizados em relação à ADR-0019 (o código estava certo):
+
+- `TestDevelopmentRepository_Integration`: o teste chamava o repositório com `DefaultLayout` vazio, que o `CHECK (default_layout IN ('a','b'))` recusa. Na aplicação o `Validate` do serviço põe o layout A antes; o teste agora manda o pedido já normalizado.
+- `TestLeadRepository_Integration`: o resumo passou a trazer `ByLayout`; o valor esperado inclui a conversão por layout (A sem clientes, B com um cliente com proposta).
+- `make test-integration`, `make lint` e `make cover` (94,9%) passam num banco descartável.

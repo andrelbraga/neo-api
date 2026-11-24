@@ -116,7 +116,8 @@ func TestLeadRepository_Integration(t *testing.T) {
 	sum, err := repo.Summary(ctx, brokerID)
 	require.NoError(t, err)
 	assert.Equal(t, lead.Summary{Leads: 1, Identified: 1, NewProposals: 1,
-		ByStage: map[string]int{lead.StageNew: 0, lead.StageWorking: 0, lead.StageProposal: 1, lead.StageSold: 0, lead.StageLost: 0}}, sum)
+		ByStage:  map[string]int{lead.StageNew: 0, lead.StageWorking: 0, lead.StageProposal: 1, lead.StageSold: 0, lead.StageLost: 0},
+		ByLayout: map[string]lead.LayoutStats{"a": {}, "b": {Leads: 1, WithProposal: 1}}}, sum, "o resumo traz a conversão por layout (ADR-0019)")
 
 	require.NoError(t, repo.MarkProposalsSeen(ctx, l.ID))
 	// Ajuste do corretor: não gera evento nem conta como nova.
