@@ -135,3 +135,11 @@ Pedido (CLI): analisar as telas de `resources/Neo360_BoaVista_COMPLETO_v12/dist/
   - no "ver como", os cartões da plataforma (corretores ativos, empreendimentos) viram propostas novas e em negociação do corretor, e o feed ocupa o lugar do ranking;
   - o seletor mostra só o nome;
   - os rótulos `h2` em caixa alta da ficha ficam sem serifa.
+
+## 24/11/2026 — Testes de integração em dia com os layouts A e B
+
+O CI da `main` falhava desde `aad2395` em dois testes de integração, ambos desatualizados em relação à ADR-0019 (o código estava certo):
+
+- `TestDevelopmentRepository_Integration`: o teste chamava o repositório com `DefaultLayout` vazio, que o `CHECK (default_layout IN ('a','b'))` recusa. Na aplicação o `Validate` do serviço põe o layout A antes; o teste agora manda o pedido já normalizado.
+- `TestLeadRepository_Integration`: o resumo passou a trazer `ByLayout`; o valor esperado inclui a conversão por layout (A sem clientes, B com um cliente com proposta).
+- `make test-integration`, `make lint` e `make cover` (94,9%) passam num banco descartável.

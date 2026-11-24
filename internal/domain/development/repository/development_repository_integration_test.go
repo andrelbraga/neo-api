@@ -30,8 +30,9 @@ func TestDevelopmentRepository_Integration(t *testing.T) {
 
 	var agencyID string
 	require.NoError(t, database.QueryRowContext(ctx, `INSERT INTO organizations (kind, name) VALUES ('imobiliaria', 'Omni') RETURNING id`).Scan(&agencyID))
+	// O repositório recebe o pedido já normalizado pelo Validate do serviço, que põe o layout A quando vem vazio.
 	req := development.Request{Slug: "vale-verde", Name: "Vale Verde", Status: development.StatusBuilding, DeveloperID: bv.DeveloperID,
-		Gallery: []development.Image{}, Highlights: []development.Highlight{{Label: "Área", Value: "70 m²"}}}
+		Gallery: []development.Image{}, Highlights: []development.Highlight{{Label: "Área", Value: "70 m²"}}, DefaultLayout: development.LayoutA}
 	d, err := repo.Create(ctx, req)
 	require.NoError(t, err)
 	assert.False(t, d.Published)
