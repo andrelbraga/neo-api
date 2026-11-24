@@ -506,11 +506,17 @@ func TestAdminService(t *testing.T) {
 	_, err = s.Get(ctx, "l9")
 	assert.ErrorIs(t, err, lead.ErrNotFound)
 
-	sum, err := s.Summary(ctx)
+	sum, err := s.Summary(ctx, "")
 	require.NoError(t, err)
 	assert.Equal(t, 2, sum.Leads)
+	sum, err = s.Summary(ctx, "b-ana")
+	require.NoError(t, err)
+	assert.Equal(t, 1, sum.Leads, "ver como o corretor soma só os clientes dele")
 
-	feed, err := s.Activity(ctx)
+	feed, err := s.Activity(ctx, "")
 	require.NoError(t, err)
 	assert.Len(t, feed, 2)
+	feed, err = s.Activity(ctx, "b-ana")
+	require.NoError(t, err)
+	assert.Len(t, feed, 1)
 }
