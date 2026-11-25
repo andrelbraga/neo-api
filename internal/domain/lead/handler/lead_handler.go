@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -32,9 +33,9 @@ func (h *LeadHandler) Showroom(c *gin.Context) {
 	h.respond(c, http.StatusOK, room, err, "showroom failed")
 }
 
-// Visit godoc: POST /api/public/showroom/:slug/:code/visit?layout=a|b
+// Visit godoc: POST /api/public/showroom/:slug/:code/visit?layout=a|b&convite=
 func (h *LeadHandler) Visit(c *gin.Context) {
-	v, err := h.public.Visit(c.Request.Context(), c.Param("slug"), c.Param("code"), c.GetHeader(TokenHeader), c.Query("layout"))
+	v, err := h.public.Visit(c.Request.Context(), c.Param("slug"), c.Param("code"), c.GetHeader(TokenHeader), c.Query("layout"), c.Query("convite"))
 	h.respond(c, http.StatusOK, v, err, "visit failed")
 }
 
@@ -114,6 +115,43 @@ func (h *LeadHandler) MyActivity(c *gin.Context) {
 	h.respond(c, http.StatusOK, list, err, "my activity failed")
 }
 
+// CreateClient godoc: POST /api/me/leads
+func (h *LeadHandler) CreateClient(c *gin.Context) {
+	var req lead.NewClientRequest
+	if !bind(c, &req) {
+		return
+	}
+	l, err := h.broker.Create(c.Request.Context(), c.GetString("userID"), req)
+	h.respond(c, http.StatusCreated, l, err, "create client failed")
+}
+
+// ImportClients godoc: POST /api/me/leads/import (multipart: file, development_id, dry_run=true|false)
+func (h *LeadHandler) ImportClients(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, lead.MaxImportBytes+64<<10)
+	fh, err := c.FormFile("file")
+	if err != nil {
+		h.respond(c, 0, nil, lead.ErrInvalidFile, "")
+		return
+	}
+	if fh.Size > lead.MaxImportBytes {
+		h.respond(c, 0, nil, lead.ErrTooManyRows, "")
+		return
+	}
+	f, err := fh.Open()
+	if err != nil {
+		h.respond(c, 0, nil, lead.ErrInvalidFile, "")
+		return
+	}
+	defer f.Close() //nolint:errcheck
+	data, err := io.ReadAll(io.LimitReader(f, lead.MaxImportBytes+1))
+	if err != nil {
+		h.respond(c, 0, nil, lead.ErrInvalidFile, "")
+		return
+	}
+	report, err := h.broker.Import(c.Request.Context(), c.GetString("userID"), c.PostForm("development_id"), data, c.PostForm("dry_run") != "false")
+	h.respond(c, http.StatusOK, report, err, "import clients failed")
+}
+
 // ─── Admin ───────────────────────────────────────────────────────────────────
 
 // AdminLeads godoc: GET /api/admin/leads?stage=&development=&broker=
@@ -164,6 +202,11 @@ func (h *LeadHandler) respond(c *gin.Context, status int, data any, err error, m
 		api.RespondError(c, http.StatusUnauthorized, err.Error())
 	case errors.Is(err, lead.ErrNotBroker):
 		api.RespondError(c, http.StatusForbidden, err.Error())
+	case errors.Is(err, lead.ErrAlreadyYours), errors.Is(err, lead.ErrPhoneTaken):
+		api.RespondError(c, http.StatusConflict, err.Error())
+	case errors.Is(err, lead.ErrInvalidClientName), errors.Is(err, lead.ErrInvalidDevelopment), errors.Is(err, lead.ErrInvalidFile),
+		errors.Is(err, lead.ErrTooManyRows):
+		api.RespondError(c, http.StatusBadRequest, err.Error())
 	case errors.Is(err, lead.ErrInvalidEvent), errors.Is(err, lead.ErrInvalidName), errors.Is(err, lead.ErrInvalidPhone),
 		errors.Is(err, lead.ErrInvalidProposal), errors.Is(err, lead.ErrInvalidSale), errors.Is(err, lead.ErrInvalidStage):
 		api.RespondError(c, http.StatusBadRequest, err.Error())

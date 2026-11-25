@@ -266,3 +266,79 @@ func TestLeadRepository_Integration(t *testing.T) {
 }
 
 func ptr(s string) *string { return &s }
+
+// RN-03.16: cliente cadastrado pelo corretor, o link de convite e a comparação de layouts.
+func TestLeadRepository_ClientsByBroker(t *testing.T) {
+	database := testutil.MigratedDB(t, "../../../../sql/migrations")
+	repo := NewLeadRepository(database)
+	ctx := context.Background()
+
+	var devID, userID, brokerID, unpublished string
+	require.NoError(t, database.QueryRowContext(ctx, `SELECT id FROM developments WHERE slug = 'boa-vista-residencial'`).Scan(&devID))
+	require.NoError(t, database.QueryRowContext(ctx,
+		`INSERT INTO users (name, email, password_hash, role) VALUES ('X', 'fab@x.com', 'h', 'corretor') RETURNING id`).Scan(&userID))
+	require.NoError(t, database.QueryRowContext(ctx,
+		`INSERT INTO brokers (user_id, first_name, last_name, phone, creci, code) VALUES ($1, 'Fabiano', 'Souza', '54999990000', '', 'FAB-0001') RETURNING id`,
+		userID).Scan(&brokerID))
+	require.NoError(t, database.QueryRowContext(ctx,
+		`INSERT INTO developments (slug, name, city, state, status, published) VALUES ('rascunho', 'Rascunho', 'Gramado', 'RS', 'lancamento', false) RETURNING id`).Scan(&unpublished))
+
+	require.NoError(t, repo.DevelopmentPublished(ctx, devID))
+	for _, id := range []string{unpublished, "00000000-0000-0000-0000-000000000000", "nao-e-uuid"} {
+		assert.ErrorIs(t, repo.DevelopmentPublished(ctx, id), lead.ErrInvalidDevelopment, id)
+	}
+
+	c := lead.NewClientRequest{DevelopmentID: devID, Name: "Maria Souza", Phone: "54988887777"}
+	l, err := repo.CreateByBroker(ctx, brokerID, "hash-guardado", "conv123", c)
+	require.NoError(t, err)
+	assert.Equal(t, lead.OriginBroker, l.Origin)
+	assert.Equal(t, "conv123", l.InviteCode)
+	assert.Equal(t, lead.StageNew, l.Stage)
+	assert.Equal(t, "Maria Souza", l.Name)
+	assert.Equal(t, "54988887777", l.Phone)
+	_, err = repo.CreateByBroker(ctx, brokerID, "h2", "conv456", lead.NewClientRequest{DevelopmentID: "nao-e-uuid"})
+	assert.ErrorIs(t, err, lead.ErrInvalidDevelopment)
+
+	found, err := repo.FindByPhone(ctx, devID, "54988887777")
+	require.NoError(t, err)
+	assert.Equal(t, l.ID, found.ID)
+	_, err = repo.FindByPhone(ctx, devID, "54900000000")
+	assert.ErrorIs(t, err, lead.ErrNotFound)
+
+	found, err = repo.FindByInvite(ctx, devID, "conv123")
+	require.NoError(t, err)
+	assert.Equal(t, l.ID, found.ID)
+	_, err = repo.FindByInvite(ctx, unpublished, "conv123")
+	assert.ErrorIs(t, err, lead.ErrNotFound, "o convite vale só no empreendimento dele")
+
+	// Antes de abrir o link, o cliente cadastrado não entra na comparação de layouts.
+	s, err := repo.Summary(ctx, brokerID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, s.Leads)
+	assert.Equal(t, 0, s.ByLayout["a"].Leads+s.ByLayout["b"].Leads)
+
+	require.NoError(t, repo.AddAlias(ctx, l.ID, "hash-navegador", "b"))
+	require.NoError(t, repo.AddEvent(ctx, l.ID, lead.EventVisit, []byte(`{}`)))
+	byToken, err := repo.FindByToken(ctx, "hash-navegador")
+	require.NoError(t, err)
+	assert.Equal(t, l.ID, byToken.ID, "o token do navegador abre a ficha cadastrada")
+	assert.Equal(t, "b", byToken.Layout, "a primeira visita grava o layout")
+	require.NoError(t, repo.AddAlias(ctx, l.ID, "hash-outro-navegador", "a"))
+	got, err := repo.Get(ctx, l.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "b", got.Layout, "a segunda visita não troca o layout")
+
+	s, err = repo.Summary(ctx, brokerID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, s.Leads, "os cadastros do navegador não contam como clientes")
+	assert.Equal(t, 1, s.ByLayout["b"].Leads, "depois de abrir, conta no layout")
+	list, err := repo.List(ctx, lead.Filter{BrokerID: brokerID})
+	require.NoError(t, err)
+	assert.Len(t, list, 1)
+
+	require.NoError(t, database.Close())
+	assert.Error(t, repo.DevelopmentPublished(ctx, devID))
+	_, err = repo.CreateByBroker(ctx, brokerID, "h3", "conv789", c)
+	assert.Error(t, err)
+	assert.Error(t, repo.AddAlias(ctx, l.ID, "h4", "a"))
+}

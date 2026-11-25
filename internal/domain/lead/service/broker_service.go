@@ -9,10 +9,13 @@ import (
 // BrokerService é o CRM do corretor. Todo acesso passa pelo dono: cliente de outro corretor é "não encontrado".
 type BrokerService struct {
 	repo lead.Repository
+	// newToken e newCode geram o token guardado (sem dono) e o código do convite do cliente cadastrado.
+	newToken func() (string, error)
+	newCode  func() (string, error)
 }
 
 func NewBrokerService(repo lead.Repository) *BrokerService {
-	return &BrokerService{repo: repo}
+	return &BrokerService{repo: repo, newToken: randomToken, newCode: inviteCode}
 }
 
 func (s *BrokerService) List(ctx context.Context, userID string, f lead.Filter) ([]lead.Lead, error) {

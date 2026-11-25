@@ -18,7 +18,8 @@ const (
 		(SELECT count(*) FROM lead_events e WHERE e.lead_id = l.id),
 		(SELECT count(*) FROM proposals p WHERE p.lead_id = l.id AND p.author = 'cliente' AND p.seen_at IS NULL),
 		(SELECT COALESCE(string_agg(DISTINCT e.kind, ','), '') FROM lead_events e WHERE e.lead_id = l.id),
-		l.last_activity_at, l.created_at, l.outcome_at, l.sale_value, l.sale_proposal_id, l.outcome_note, l.layout`
+		l.last_activity_at, l.created_at, l.outcome_at, l.sale_value, l.sale_proposal_id, l.outcome_note, l.layout,
+		l.origin, COALESCE(l.invite_code, '')`
 	from = ` FROM leads l JOIN developments d ON d.id = l.development_id JOIN brokers b ON b.id = l.broker_id`
 
 	queryShowroomBroker = `
@@ -88,11 +89,29 @@ const (
 			count(*) FILTER (WHERE EXISTS (SELECT 1 FROM proposals p WHERE p.lead_id = l.id AND p.author = 'cliente')),
 			count(*) FILTER (WHERE l.stage = 'fechado'),
 			COALESCE(sum(l.sale_value) FILTER (WHERE l.stage = 'fechado'), 0)
-		FROM leads l WHERE l.merged_into IS NULL AND ($1 = '' OR l.broker_id::text = $1) GROUP BY l.layout`
+		FROM leads l WHERE l.merged_into IS NULL AND ($1 = '' OR l.broker_id::text = $1)
+			-- Cliente cadastrado pelo corretor só conta no layout depois de abrir o link (RN-03.16).
+			AND (l.origin = 'link' OR EXISTS (SELECT 1 FROM lead_events e WHERE e.lead_id = l.id AND e.kind = 'visita'))
+		GROUP BY l.layout`
 	// Cadastros do mesmo WhatsApp no mesmo empreendimento, o mais antigo primeiro: ele fica, os outros juntam.
 	queryDuplicates = `
 		SELECT d.id FROM leads l JOIN leads d ON d.development_id = l.development_id AND d.phone = l.phone AND d.merged_into IS NULL
 		WHERE l.id = $1 AND l.phone <> '' ORDER BY d.created_at, d.id`
+	queryPublished = `SELECT published FROM developments WHERE id = $1`
+	queryByPhone   = `SELECT ` + columns + from + ` WHERE l.development_id = $1 AND l.phone = $2 AND l.merged_into IS NULL ORDER BY l.created_at, l.id LIMIT 1`
+	queryByInvite  = `SELECT ` + columns + from + ` WHERE l.development_id = $1 AND l.invite_code = $2 AND l.merged_into IS NULL`
+	// O cliente cadastrado pelo corretor nasce em "novo", com nome e WhatsApp; o token não é entregue a ninguém
+	// (o navegador ganha o seu na primeira visita pelo convite, AddAlias).
+	queryCreateByBroker = `
+		INSERT INTO leads (development_id, broker_id, token_hash, name, phone, origin, invite_code)
+		VALUES ($1, $2, $3, $4, $5, 'corretor', $6) RETURNING id`
+	// O token do navegador vira um cadastro juntado ao cliente: queryByToken já abre o que ficou. Na primeira
+	// visita, o cliente guarda o layout em que chegou (ADR-0019).
+	queryAddAlias = `
+		WITH k AS (SELECT id, development_id, broker_id FROM leads WHERE id = $1),
+		a AS (INSERT INTO leads (development_id, broker_id, token_hash, layout, merged_into) SELECT development_id, broker_id, $2, $3, id FROM k)
+		UPDATE leads SET layout = $3, updated_at = now()
+		WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM lead_events e WHERE e.lead_id = $1 AND e.kind = 'visita')`
 	queryMoveEvents    = `UPDATE lead_events SET lead_id = $1 WHERE lead_id = $2`
 	queryMoveProposals = `UPDATE proposals SET lead_id = $1 WHERE lead_id = $2`
 	queryMarkMerged    = `UPDATE leads SET merged_into = $1, updated_at = now() WHERE id = $2 OR merged_into = $2`
@@ -383,6 +402,48 @@ func (r *LeadRepository) Activity(ctx context.Context, brokerID string) ([]lead.
 	return list, nil
 }
 
+// DevelopmentPublished confere que o corretor cadastra o cliente num empreendimento que ele pode ofertar (RN-02.3).
+func (r *LeadRepository) DevelopmentPublished(ctx context.Context, developmentID string) error {
+	var published bool
+	err := r.db.QueryRowContext(ctx, queryPublished, developmentID).Scan(&published)
+	if errors.Is(err, sql.ErrNoRows) || pgerr.BadUUID(err) || (err == nil && !published) {
+		return lead.ErrInvalidDevelopment
+	}
+	if err != nil {
+		return fmt.Errorf("development published: %w", err)
+	}
+	return nil
+}
+
+func (r *LeadRepository) FindByPhone(ctx context.Context, developmentID, phone string) (lead.Lead, error) {
+	l, err := scan(r.db.QueryRowContext(ctx, queryByPhone, developmentID, phone))
+	return l, notFound(err, "find lead by phone")
+}
+
+func (r *LeadRepository) CreateByBroker(ctx context.Context, brokerID, tokenHash, inviteCode string, c lead.NewClientRequest) (lead.Lead, error) {
+	var id string
+	err := r.db.QueryRowContext(ctx, queryCreateByBroker, c.DevelopmentID, brokerID, tokenHash, c.Name, c.Phone, inviteCode).Scan(&id)
+	if pgerr.BadUUID(err) || pgerr.ForeignKey(err) {
+		return lead.Lead{}, lead.ErrInvalidDevelopment
+	}
+	if err != nil {
+		return lead.Lead{}, fmt.Errorf("create lead by broker: %w", err)
+	}
+	return r.Get(ctx, id)
+}
+
+func (r *LeadRepository) FindByInvite(ctx context.Context, developmentID, code string) (lead.Lead, error) {
+	l, err := scan(r.db.QueryRowContext(ctx, queryByInvite, developmentID, code))
+	return l, notFound(err, "find lead by invite")
+}
+
+func (r *LeadRepository) AddAlias(ctx context.Context, leadID, tokenHash, layout string) error {
+	if _, err := r.db.ExecContext(ctx, queryAddAlias, leadID, tokenHash, layout); err != nil {
+		return fmt.Errorf("add alias: %w", err)
+	}
+	return nil
+}
+
 func scan(s scanner) (lead.Lead, error) {
 	var l lead.Lead
 	var signals string
@@ -391,7 +452,7 @@ func scan(s scanner) (lead.Lead, error) {
 	var saleProposal sql.NullString
 	err := s.Scan(&l.ID, &l.DevelopmentID, &l.DevelopmentName, &l.DevelopmentSlug, &l.BrokerID, &l.BrokerName, &l.BrokerCode,
 		&l.Name, &l.Phone, &l.Stage, &l.EventsCount, &l.NewProposals, &signals, &l.LastActivityAt, &l.CreatedAt,
-		&outcomeAt, &saleValue, &saleProposal, &l.OutcomeNote, &l.Layout)
+		&outcomeAt, &saleValue, &saleProposal, &l.OutcomeNote, &l.Layout, &l.Origin, &l.InviteCode)
 	if outcomeAt.Valid {
 		l.OutcomeAt = &outcomeAt.Time
 	}

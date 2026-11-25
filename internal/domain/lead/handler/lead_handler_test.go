@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,7 +21,11 @@ type fake struct {
 	err    error
 	token  string
 	layout string
+	invite string
 	broker string
+	devID  string
+	data   string
+	dryRun bool
 	user   string
 	filter lead.Filter
 }
@@ -27,8 +33,8 @@ type fake struct {
 func (f *fake) Showroom(context.Context, string, string) (lead.Showroom, error) {
 	return lead.Showroom{}, f.err
 }
-func (f *fake) Visit(_ context.Context, _, _, token, layout string) (lead.Visit, error) {
-	f.token, f.layout = token, layout
+func (f *fake) Visit(_ context.Context, _, _, token, layout, invite string) (lead.Visit, error) {
+	f.token, f.layout, f.invite = token, layout, invite
 	return lead.Visit{}, f.err
 }
 func (f *fake) Track(_ context.Context, token string, _ lead.EventRequest) error {
@@ -54,6 +60,14 @@ func (f fakeBroker) Get(context.Context, string, string) (lead.Detail, error) {
 }
 func (f fakeBroker) SetStage(context.Context, string, string, lead.StageRequest) (lead.Lead, error) {
 	return lead.Lead{}, f.err
+}
+func (f fakeBroker) Create(_ context.Context, _ string, r lead.NewClientRequest) (lead.Lead, error) {
+	f.devID = r.DevelopmentID
+	return lead.Lead{}, f.err
+}
+func (f fakeBroker) Import(_ context.Context, _, devID string, data []byte, dryRun bool) (lead.ImportReport, error) {
+	f.devID, f.data, f.dryRun = devID, string(data), dryRun
+	return lead.ImportReport{}, f.err
 }
 func (f fakeBroker) Adjust(context.Context, string, string, lead.AdjustRequest) (lead.Proposal, error) {
 	return lead.Proposal{}, f.err
@@ -94,6 +108,8 @@ func do(f *fake, method, path, body string) *httptest.ResponseRecorder {
 	r.PUT("/public/lead/contact", h.Contact)
 	r.POST("/public/lead/proposals", h.Propose)
 	r.GET("/me/leads", h.MyLeads)
+	r.POST("/me/leads", h.CreateClient)
+	r.POST("/me/leads/import", h.ImportClients)
 	r.GET("/me/leads/:id", h.MyLead)
 	r.PATCH("/me/leads/:id/stage", h.SetStage)
 	r.POST("/me/leads/:id/proposals", h.Adjust)
@@ -121,6 +137,7 @@ var routes = []struct {
 	{http.MethodPut, "/public/lead/contact", `{}`, http.StatusOK},
 	{http.MethodPost, "/public/lead/proposals", `{}`, http.StatusCreated},
 	{http.MethodGet, "/me/leads?stage=novo&development=d1", "", http.StatusOK},
+	{http.MethodPost, "/me/leads", `{}`, http.StatusCreated},
 	{http.MethodGet, "/me/leads/l1", "", http.StatusOK},
 	{http.MethodPatch, "/me/leads/l1/stage", `{}`, http.StatusOK},
 	{http.MethodPost, "/me/leads/l1/proposals", `{}`, http.StatusCreated},
@@ -145,6 +162,9 @@ func TestLeadHandler(t *testing.T) {
 	do(f, http.MethodPost, "/public/showroom/bv/FAB-0001/visit?layout=b", "")
 	assert.Equal(t, "b", f.layout, "o layout vem da query da visita")
 	f = &fake{}
+	do(f, http.MethodPost, "/public/showroom/bv/FAB-0001/visit?convite=abc123", "")
+	assert.Equal(t, "abc123", f.invite, "o código do convite vem da query da visita")
+	f = &fake{}
 	do(f, http.MethodPost, "/public/lead/proposals", `{}`)
 	assert.Equal(t, "tok", f.token, "a proposta também vem com o token da visita")
 
@@ -168,6 +188,12 @@ func TestLeadHandler(t *testing.T) {
 		{lead.ErrInvalidProposal, http.StatusBadRequest},
 		{lead.ErrInvalidSale, http.StatusBadRequest},
 		{lead.ErrInvalidStage, http.StatusBadRequest},
+		{lead.ErrInvalidClientName, http.StatusBadRequest},
+		{lead.ErrInvalidDevelopment, http.StatusBadRequest},
+		{lead.ErrInvalidFile, http.StatusBadRequest},
+		{lead.ErrTooManyRows, http.StatusBadRequest},
+		{lead.ErrAlreadyYours, http.StatusConflict},
+		{lead.ErrPhoneTaken, http.StatusConflict},
 		{errors.New("db"), http.StatusInternalServerError},
 	}
 	for _, tc := range cases {
@@ -194,4 +220,46 @@ func TestAdminSeeAs(t *testing.T) {
 		assert.Equal(t, http.StatusOK, do(f, http.MethodGet, path, "").Code)
 		assert.Equal(t, "b7", f.broker, path)
 	}
+}
+
+func upload(f *fake, fields map[string]string, file string, withFile bool) *httptest.ResponseRecorder {
+	gin.SetMode(gin.TestMode)
+	h := NewLeadHandler(f, fakeBroker{f}, fakeAdmin{f}, nopLog{})
+	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("userID", "u1") })
+	r.POST("/me/leads/import", h.ImportClients)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	for k, v := range fields {
+		_ = mw.WriteField(k, v)
+	}
+	if withFile {
+		w, _ := mw.CreateFormFile("file", "clientes.csv")
+		_, _ = w.Write([]byte(file))
+	}
+	_ = mw.Close()
+	req := httptest.NewRequest(http.MethodPost, "/me/leads/import", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+// RN-03.16: a planilha vem em multipart; sem dry_run=false, é só a conferência.
+func TestImportClients(t *testing.T) {
+	f := &fake{}
+	w := upload(f, map[string]string{"development_id": "d1"}, "nome;telefone\nAna;54999990000", true)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "d1", f.devID)
+	assert.Contains(t, f.data, "Ana;54999990000")
+	assert.True(t, f.dryRun, "sem dry_run, só confere")
+
+	f = &fake{}
+	upload(f, map[string]string{"development_id": "d1", "dry_run": "false"}, "Ana;54999990000", true)
+	assert.False(t, f.dryRun, "dry_run=false grava")
+
+	assert.Equal(t, http.StatusBadRequest, upload(&fake{}, map[string]string{"development_id": "d1"}, "", false).Code, "sem arquivo")
+	big := strings.Repeat("a", lead.MaxImportBytes+1)
+	assert.Equal(t, http.StatusBadRequest, upload(&fake{}, map[string]string{"development_id": "d1"}, big, true).Code, "arquivo grande demais")
+	assert.Equal(t, http.StatusConflict, upload(&fake{err: lead.ErrPhoneTaken}, nil, "x", true).Code)
 }
