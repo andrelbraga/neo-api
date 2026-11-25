@@ -8,6 +8,7 @@ type Repository interface {
 	GetPublishedBySlug(ctx context.Context, slug string) (Development, error)
 	Create(ctx context.Context, r Request) (Development, error)
 	Update(ctx context.Context, id string, r Request) (Development, error)
+	SavePage(ctx context.Context, id string, c PageConfig) (Development, error)
 }
 
 type Service interface {
@@ -16,6 +17,8 @@ type Service interface {
 	GetPublishedBySlug(ctx context.Context, slug string) (Development, error)
 	Create(ctx context.Context, r Request) (Development, error)
 	Update(ctx context.Context, id string, r Request) (Development, error)
+	// SavePage publica a edição da página de apresentação (ADR-0027).
+	SavePage(ctx context.Context, id string, c PageConfig) (Development, error)
 }
 
 type Logger interface {

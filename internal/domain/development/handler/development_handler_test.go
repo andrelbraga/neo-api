@@ -36,6 +36,10 @@ func (f *fakeService) Update(context.Context, string, development.Request) (deve
 	return development.Development{}, f.err
 }
 
+func (f *fakeService) SavePage(context.Context, string, development.PageConfig) (development.Development, error) {
+	return development.Development{}, f.err
+}
+
 type nopLog struct{}
 
 func (nopLog) Error(string, ...any) {}
@@ -49,6 +53,7 @@ func do(svc development.Service, method, path, body string) *httptest.ResponseRe
 	r.GET("/admin/developments/:id", h.Get)
 	r.POST("/admin/developments", h.Create)
 	r.PUT("/admin/developments/:id", h.Update)
+	r.PUT("/admin/developments/:id/page", h.SavePage)
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -65,6 +70,7 @@ var routes = []struct {
 	{http.MethodGet, "/admin/developments/d1", "", http.StatusOK},
 	{http.MethodPost, "/admin/developments", `{}`, http.StatusCreated},
 	{http.MethodPut, "/admin/developments/d1", `{}`, http.StatusOK},
+	{http.MethodPut, "/admin/developments/d1/page", `{}`, http.StatusOK},
 }
 
 func TestDevelopmentHandler(t *testing.T) {
@@ -75,6 +81,8 @@ func TestDevelopmentHandler(t *testing.T) {
 	assert.Equal(t, []bool{false, true}, svc.published, "admin vê todos; corretor só os publicados")
 	assert.Equal(t, http.StatusBadRequest, do(&fakeService{}, http.MethodPost, "/admin/developments", `{`).Code)
 	assert.Equal(t, http.StatusBadRequest, do(&fakeService{}, http.MethodPut, "/admin/developments/d1", `{`).Code)
+	assert.Equal(t, http.StatusBadRequest, do(&fakeService{}, http.MethodPut, "/admin/developments/d1/page", `{`).Code)
+	assert.Equal(t, http.StatusBadRequest, do(&fakeService{err: development.ErrInvalidPage}, http.MethodPut, "/admin/developments/d1/page", `{}`).Code)
 
 	cases := []struct {
 		err    error

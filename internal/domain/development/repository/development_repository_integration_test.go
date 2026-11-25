@@ -80,7 +80,24 @@ func TestDevelopmentRepository_Integration(t *testing.T) {
 		assert.ErrorIs(t, err, development.ErrNotFound)
 	}
 
+	// ADR-0027: a edição da página é gravada e volta no empreendimento, também no showroom público.
+	assert.Empty(t, d.PageConfig.Sections, "começa sem edição")
+	cfg := development.PageConfig{
+		Sections: map[string]development.SectionConfig{"h-planta": {Hidden: true}},
+		Blocks:   map[string]bool{"3d.condominio": false},
+		Texts:    []development.TextOverride{{Section: "foot", From: "Protótipo privado", To: "Valores sujeitos a confirmação"}},
+	}
+	saved, err := repo.SavePage(ctx, d.ID, cfg)
+	require.NoError(t, err)
+	assert.Equal(t, cfg, saved.PageConfig)
+	for _, id := range []string{"00000000-0000-0000-0000-000000000000", "nao-e-uuid"} {
+		_, err = repo.SavePage(ctx, id, cfg)
+		assert.ErrorIs(t, err, development.ErrNotFound)
+	}
+
 	require.NoError(t, database.Close())
+	_, err = repo.SavePage(ctx, d.ID, cfg)
+	assert.Error(t, err)
 	_, err = repo.List(ctx, false)
 	assert.Error(t, err)
 	_, err = repo.Create(ctx, development.Request{Slug: "w", Name: "w"})

@@ -16,6 +16,7 @@ func Register(app *api.App, svc development.Service) {
 	admin.POST("/admin/developments", h.Create)
 	admin.GET("/admin/developments/:id", h.Get)
 	admin.PUT("/admin/developments/:id", h.Update)
+	admin.PUT("/admin/developments/:id/page", h.SavePage)
 
 	app.API(api.Routes{Authorization: true, Permission: authz.BrokerArea}).GET("/me/developments", h.ListPublished)
 }

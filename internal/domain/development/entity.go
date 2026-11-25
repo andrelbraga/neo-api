@@ -65,9 +65,11 @@ type Development struct {
 	DefaultLayout string      `json:"default_layout"`
 	Gallery       []Image     `json:"gallery"`
 	Highlights    []Highlight `json:"highlights"`
-	LeadsCount    int         `json:"leads_count"`
-	CreatedAt     time.Time   `json:"created_at"`
-	UpdatedAt     time.Time   `json:"updated_at"`
+	// PageConfig é a edição da página de apresentação pelo admin (ADR-0027).
+	PageConfig PageConfig `json:"page_config"`
+	LeadsCount int        `json:"leads_count"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
 }
 
 type Request struct {

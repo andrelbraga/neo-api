@@ -10,7 +10,10 @@ import (
 	"neo360-api/internal/domain/development"
 )
 
-type fakeRepo struct{ published bool }
+type fakeRepo struct {
+	published bool
+	page      development.PageConfig
+}
 
 func (f *fakeRepo) List(_ context.Context, onlyPublished bool) ([]development.Development, error) {
 	f.published = onlyPublished
@@ -27,6 +30,27 @@ func (f *fakeRepo) Create(_ context.Context, r development.Request) (development
 }
 func (f *fakeRepo) Update(_ context.Context, id string, r development.Request) (development.Development, error) {
 	return development.Development{ID: id, Slug: r.Slug}, nil
+}
+
+func (f *fakeRepo) SavePage(_ context.Context, id string, c development.PageConfig) (development.Development, error) {
+	f.page = c
+	return development.Development{ID: id, PageConfig: c}, nil
+}
+
+// ADR-0027: a edição da página é limpa antes de gravar.
+func TestDevelopmentService_SavePage(t *testing.T) {
+	ctx := context.Background()
+	repo := &fakeRepo{}
+	s := NewDevelopmentService(repo)
+	d, err := s.SavePage(ctx, "d1", development.PageConfig{
+		Sections: map[string]development.SectionConfig{"h-planta": {Hidden: true}, "h-sim": {Hidden: false}},
+		Texts:    []development.TextOverride{{Section: "foot", From: "Protótipo", To: "Valores sujeitos a confirmação."}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "d1", d.ID)
+	assert.Equal(t, map[string]development.SectionConfig{"h-planta": {Hidden: true}}, repo.page.Sections, "seção sem mudança não é gravada")
+	_, err = s.SavePage(ctx, "d1", development.PageConfig{Sections: map[string]development.SectionConfig{"<script>": {Hidden: true}}})
+	assert.ErrorIs(t, err, development.ErrInvalidPage)
 }
 
 func TestDevelopmentService(t *testing.T) {

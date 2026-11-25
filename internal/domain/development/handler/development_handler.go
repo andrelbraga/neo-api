@@ -59,6 +59,17 @@ func (h *DevelopmentHandler) Update(c *gin.Context) {
 	h.respond(c, http.StatusOK, d, err, "update development failed")
 }
 
+// SavePage godoc: PUT /api/admin/developments/:id/page (edição da página de apresentação, ADR-0027)
+func (h *DevelopmentHandler) SavePage(c *gin.Context) {
+	var req development.PageConfig
+	if err := c.ShouldBindJSON(&req); err != nil {
+		api.RespondError(c, http.StatusBadRequest, "corpo da requisição inválido")
+		return
+	}
+	d, err := h.svc.SavePage(c.Request.Context(), c.Param("id"), req)
+	h.respond(c, http.StatusOK, d, err, "save page failed")
+}
+
 func (h *DevelopmentHandler) respond(c *gin.Context, status int, data any, err error, msg string) {
 	switch {
 	case err == nil:
@@ -71,7 +82,7 @@ func (h *DevelopmentHandler) respond(c *gin.Context, status int, data any, err e
 		errors.Is(err, development.ErrInvalidStatus), errors.Is(err, development.ErrInvalidState),
 		errors.Is(err, development.ErrInvalidURL), errors.Is(err, development.ErrInvalidHighlight), errors.Is(err, development.ErrInvalidLayout),
 		errors.Is(err, development.ErrTooManyItems), errors.Is(err, development.ErrFieldTooLong),
-		errors.Is(err, development.ErrDeveloperNotFound):
+		errors.Is(err, development.ErrDeveloperNotFound), errors.Is(err, development.ErrInvalidPage):
 		api.RespondError(c, http.StatusBadRequest, err.Error())
 	default:
 		h.log.Error(msg, "error", err)

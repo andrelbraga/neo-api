@@ -15,4 +15,5 @@ var (
 	ErrFieldTooLong      = errors.New("campo longo demais")
 	ErrDeveloperNotFound = errors.New("incorporadora não encontrada")
 	ErrInvalidLayout     = errors.New("layout inválido: use A ou B")
+	ErrInvalidPage       = errors.New("configuração da página inválida: confira seções, blocos e textos (até 4.000 caracteres cada)")
 )

@@ -13,7 +13,7 @@ import (
 
 const (
 	columns = `d.id, d.slug, d.name, d.developer_id, COALESCE(o.name, ''), d.city, d.state, d.status, d.published,
-		d.headline, d.description, d.cover_image_url, d.tour_url, d.presentation_url, d.default_layout, d.gallery, d.highlights,
+		d.headline, d.description, d.cover_image_url, d.tour_url, d.presentation_url, d.default_layout, d.gallery, d.highlights, d.page_config,
 		(SELECT count(*) FROM leads l WHERE l.development_id = d.id), d.created_at, d.updated_at`
 	from = ` FROM developments d LEFT JOIN organizations o ON o.id = d.developer_id`
 
@@ -30,6 +30,8 @@ const (
 			published = $8, headline = $9, description = $10, cover_image_url = $11, tour_url = $12,
 			gallery = $13, highlights = $14, presentation_url = $15, default_layout = $16, updated_at = now()
 		WHERE id = $1 RETURNING id`
+
+	queryPage = `UPDATE developments SET page_config = $2, updated_at = now() WHERE id = $1 RETURNING id`
 
 	constraintSlug = "developments_slug_key"
 )
@@ -105,6 +107,18 @@ func (r *DevelopmentRepository) Update(ctx context.Context, id string, req devel
 	return r.Get(ctx, id)
 }
 
+// SavePage grava a edição da página de apresentação (ADR-0027).
+func (r *DevelopmentRepository) SavePage(ctx context.Context, id string, c development.PageConfig) (development.Development, error) {
+	page, err := json.Marshal(c)
+	if err != nil {
+		return development.Development{}, fmt.Errorf("page config: %w", err)
+	}
+	if err := r.db.QueryRowContext(ctx, queryPage, id, page).Scan(&id); err != nil {
+		return development.Development{}, notFound(err, "save page")
+	}
+	return r.Get(ctx, id)
+}
+
 func (r *DevelopmentRepository) checkDeveloper(ctx context.Context, id *string) error {
 	if id == nil {
 		return nil
@@ -138,9 +152,9 @@ func values(r development.Request) ([]any, error) {
 func scan(s scanner) (development.Development, error) {
 	var d development.Development
 	var developer sql.NullString
-	var gallery, highlights []byte
+	var gallery, highlights, page []byte
 	err := s.Scan(&d.ID, &d.Slug, &d.Name, &developer, &d.DeveloperName, &d.City, &d.State, &d.Status, &d.Published,
-		&d.Headline, &d.Description, &d.CoverImageURL, &d.TourURL, &d.PresentationURL, &d.DefaultLayout, &gallery, &highlights, &d.LeadsCount, &d.CreatedAt, &d.UpdatedAt)
+		&d.Headline, &d.Description, &d.CoverImageURL, &d.TourURL, &d.PresentationURL, &d.DefaultLayout, &gallery, &highlights, &page, &d.LeadsCount, &d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return d, err
 	}
@@ -152,6 +166,9 @@ func scan(s scanner) (development.Development, error) {
 	}
 	if err := json.Unmarshal(highlights, &d.Highlights); err != nil {
 		return d, fmt.Errorf("highlights: %w", err)
+	}
+	if err := json.Unmarshal(page, &d.PageConfig); err != nil {
+		return d, fmt.Errorf("page config: %w", err)
 	}
 	return d, nil
 }
