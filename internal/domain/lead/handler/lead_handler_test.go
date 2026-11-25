@@ -73,6 +73,10 @@ func (f fakeBroker) Update(_ context.Context, _, _ string, r lead.UpdateRequest)
 	f.data = r.Name
 	return lead.Lead{}, f.err
 }
+func (f fakeBroker) MessageSent(_ context.Context, _, _ string, r lead.MessageSentRequest) (lead.Lead, error) {
+	f.data = r.Profile + "/" + r.Tone
+	return lead.Lead{}, f.err
+}
 func (f fakeBroker) Archive(context.Context, string, string) (lead.Lead, error) {
 	return lead.Lead{}, f.err
 }
@@ -135,6 +139,7 @@ func do(f *fake, method, path, body string) *httptest.ResponseRecorder {
 	r.PATCH("/me/leads/:id", h.UpdateClient)
 	r.DELETE("/me/leads/:id", h.ArchiveClient)
 	r.POST("/me/leads/:id/restore", h.RestoreClient)
+	r.POST("/me/leads/:id/message-sent", h.MessageSent)
 	r.GET("/me/message-templates", h.Templates)
 	r.PUT("/me/message-templates/:profile/:tone", h.SaveTemplate)
 	r.DELETE("/me/message-templates/:profile/:tone", h.ResetTemplate)
@@ -169,6 +174,7 @@ var routes = []struct {
 	{http.MethodPatch, "/me/leads/l1", `{}`, http.StatusOK},
 	{http.MethodDelete, "/me/leads/l1", "", http.StatusOK},
 	{http.MethodPost, "/me/leads/l1/restore", "", http.StatusOK},
+	{http.MethodPost, "/me/leads/l1/message-sent", `{}`, http.StatusOK},
 	{http.MethodGet, "/me/message-templates", "", http.StatusOK},
 	{http.MethodPut, "/me/message-templates/moradia/formal", `{}`, http.StatusOK},
 	{http.MethodDelete, "/me/message-templates/moradia/formal", "", http.StatusOK},
@@ -230,6 +236,8 @@ func TestLeadHandler(t *testing.T) {
 		{lead.ErrInvalidProfile, http.StatusBadRequest},
 		{lead.ErrInvalidTemplate, http.StatusBadRequest},
 		{lead.ErrTemplateKey, http.StatusNotFound},
+		{lead.ErrInvalidMessage, http.StatusBadRequest},
+		{lead.ErrNoPhone, http.StatusBadRequest},
 		{errors.New("db"), http.StatusInternalServerError},
 	}
 	for _, tc := range cases {
@@ -300,4 +308,12 @@ func TestImportClients(t *testing.T) {
 	big := strings.Repeat("a", lead.MaxImportBytes+1)
 	assert.Equal(t, http.StatusBadRequest, upload(&fake{}, map[string]string{"development_id": "d1"}, big, true).Code, "arquivo grande demais")
 	assert.Equal(t, http.StatusConflict, upload(&fake{err: lead.ErrPhoneTaken}, nil, "x", true).Code)
+}
+
+// ADR-0028: a fila de envio passa perfil e tom ao serviço.
+func TestMessageSentHandler(t *testing.T) {
+	f := &fake{}
+	w := do(f, http.MethodPost, "/me/leads/l1/message-sent", `{"profile":"moradia","tone":"formal"}`)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "moradia/formal", f.data)
 }

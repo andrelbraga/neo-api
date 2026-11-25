@@ -108,6 +108,8 @@ type Lead struct {
 	Profile string `json:"profile"`
 	// ArchivedAt é quando o corretor arquivou o cliente (RN-03.19); nulo nos ativos.
 	ArchivedAt *time.Time `json:"archived_at"`
+	// LastMessageAt é o último envio de mensagem pelo WhatsApp que o corretor confirmou (RN-03.22).
+	LastMessageAt *time.Time `json:"last_message_at"`
 }
 
 // LayoutStats é a conversão de um layout: clientes, quantos enviaram proposta e quantos fecharam.
