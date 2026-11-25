@@ -69,6 +69,27 @@ func (f fakeBroker) Import(_ context.Context, _, devID string, data []byte, dryR
 	f.devID, f.data, f.dryRun = devID, string(data), dryRun
 	return lead.ImportReport{}, f.err
 }
+func (f fakeBroker) Update(_ context.Context, _, _ string, r lead.UpdateRequest) (lead.Lead, error) {
+	f.data = r.Name
+	return lead.Lead{}, f.err
+}
+func (f fakeBroker) Archive(context.Context, string, string) (lead.Lead, error) {
+	return lead.Lead{}, f.err
+}
+func (f fakeBroker) Restore(context.Context, string, string) (lead.Lead, error) {
+	return lead.Lead{}, f.err
+}
+func (f fakeBroker) Templates(context.Context, string) ([]lead.Template, error) {
+	return nil, f.err
+}
+func (f fakeBroker) SaveTemplate(_ context.Context, _, profile, tone string, _ lead.TemplateRequest) (lead.Template, error) {
+	f.data = profile + "/" + tone
+	return lead.Template{}, f.err
+}
+func (f fakeBroker) ResetTemplate(_ context.Context, _, profile, tone string) (lead.Template, error) {
+	f.data = profile + "/" + tone
+	return lead.Template{}, f.err
+}
 func (f fakeBroker) Adjust(context.Context, string, string, lead.AdjustRequest) (lead.Proposal, error) {
 	return lead.Proposal{}, f.err
 }
@@ -111,6 +132,12 @@ func do(f *fake, method, path, body string) *httptest.ResponseRecorder {
 	r.POST("/me/leads", h.CreateClient)
 	r.POST("/me/leads/import", h.ImportClients)
 	r.GET("/me/leads/:id", h.MyLead)
+	r.PATCH("/me/leads/:id", h.UpdateClient)
+	r.DELETE("/me/leads/:id", h.ArchiveClient)
+	r.POST("/me/leads/:id/restore", h.RestoreClient)
+	r.GET("/me/message-templates", h.Templates)
+	r.PUT("/me/message-templates/:profile/:tone", h.SaveTemplate)
+	r.DELETE("/me/message-templates/:profile/:tone", h.ResetTemplate)
 	r.PATCH("/me/leads/:id/stage", h.SetStage)
 	r.POST("/me/leads/:id/proposals", h.Adjust)
 	r.GET("/me/summary", h.MySummary)
@@ -139,6 +166,12 @@ var routes = []struct {
 	{http.MethodGet, "/me/leads?stage=novo&development=d1", "", http.StatusOK},
 	{http.MethodPost, "/me/leads", `{}`, http.StatusCreated},
 	{http.MethodGet, "/me/leads/l1", "", http.StatusOK},
+	{http.MethodPatch, "/me/leads/l1", `{}`, http.StatusOK},
+	{http.MethodDelete, "/me/leads/l1", "", http.StatusOK},
+	{http.MethodPost, "/me/leads/l1/restore", "", http.StatusOK},
+	{http.MethodGet, "/me/message-templates", "", http.StatusOK},
+	{http.MethodPut, "/me/message-templates/moradia/formal", `{}`, http.StatusOK},
+	{http.MethodDelete, "/me/message-templates/moradia/formal", "", http.StatusOK},
 	{http.MethodPatch, "/me/leads/l1/stage", `{}`, http.StatusOK},
 	{http.MethodPost, "/me/leads/l1/proposals", `{}`, http.StatusCreated},
 	{http.MethodGet, "/me/summary", "", http.StatusOK},
@@ -194,6 +227,9 @@ func TestLeadHandler(t *testing.T) {
 		{lead.ErrTooManyRows, http.StatusBadRequest},
 		{lead.ErrAlreadyYours, http.StatusConflict},
 		{lead.ErrPhoneTaken, http.StatusConflict},
+		{lead.ErrInvalidProfile, http.StatusBadRequest},
+		{lead.ErrInvalidTemplate, http.StatusBadRequest},
+		{lead.ErrTemplateKey, http.StatusNotFound},
 		{errors.New("db"), http.StatusInternalServerError},
 	}
 	for _, tc := range cases {
@@ -211,6 +247,8 @@ func TestFilters(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/x?stage=proposta&development=d1&broker=b9", nil)
 	r.ServeHTTP(httptest.NewRecorder(), req)
 	assert.Equal(t, lead.Filter{Stage: "proposta", DevelopmentID: "d1"}, got, "o filtro de corretor só entra no admin")
+	r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/x?arquivados=1", nil))
+	assert.True(t, got.Archived, "arquivados=1 lista os arquivados")
 }
 
 // RN-01.10: o "ver como" do admin passa o corretor ao resumo e ao feed.

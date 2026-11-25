@@ -152,6 +152,50 @@ func (h *LeadHandler) ImportClients(c *gin.Context) {
 	h.respond(c, http.StatusOK, report, err, "import clients failed")
 }
 
+// UpdateClient godoc: PATCH /api/me/leads/:id
+func (h *LeadHandler) UpdateClient(c *gin.Context) {
+	var req lead.UpdateRequest
+	if !bind(c, &req) {
+		return
+	}
+	l, err := h.broker.Update(c.Request.Context(), c.GetString("userID"), c.Param("id"), req)
+	h.respond(c, http.StatusOK, l, err, "update client failed")
+}
+
+// ArchiveClient godoc: DELETE /api/me/leads/:id (arquiva; nada é apagado)
+func (h *LeadHandler) ArchiveClient(c *gin.Context) {
+	l, err := h.broker.Archive(c.Request.Context(), c.GetString("userID"), c.Param("id"))
+	h.respond(c, http.StatusOK, l, err, "archive client failed")
+}
+
+// RestoreClient godoc: POST /api/me/leads/:id/restore
+func (h *LeadHandler) RestoreClient(c *gin.Context) {
+	l, err := h.broker.Restore(c.Request.Context(), c.GetString("userID"), c.Param("id"))
+	h.respond(c, http.StatusOK, l, err, "restore client failed")
+}
+
+// Templates godoc: GET /api/me/message-templates
+func (h *LeadHandler) Templates(c *gin.Context) {
+	list, err := h.broker.Templates(c.Request.Context(), c.GetString("userID"))
+	h.respond(c, http.StatusOK, list, err, "templates failed")
+}
+
+// SaveTemplate godoc: PUT /api/me/message-templates/:profile/:tone
+func (h *LeadHandler) SaveTemplate(c *gin.Context) {
+	var req lead.TemplateRequest
+	if !bind(c, &req) {
+		return
+	}
+	t, err := h.broker.SaveTemplate(c.Request.Context(), c.GetString("userID"), c.Param("profile"), c.Param("tone"), req)
+	h.respond(c, http.StatusOK, t, err, "save template failed")
+}
+
+// ResetTemplate godoc: DELETE /api/me/message-templates/:profile/:tone (volta ao padrão)
+func (h *LeadHandler) ResetTemplate(c *gin.Context) {
+	t, err := h.broker.ResetTemplate(c.Request.Context(), c.GetString("userID"), c.Param("profile"), c.Param("tone"))
+	h.respond(c, http.StatusOK, t, err, "reset template failed")
+}
+
 // ─── Admin ───────────────────────────────────────────────────────────────────
 
 // AdminLeads godoc: GET /api/admin/leads?stage=&development=&broker=
@@ -181,7 +225,7 @@ func (h *LeadHandler) AdminActivity(c *gin.Context) {
 }
 
 func filter(c *gin.Context) lead.Filter {
-	return lead.Filter{Stage: c.Query("stage"), DevelopmentID: c.Query("development")}
+	return lead.Filter{Stage: c.Query("stage"), DevelopmentID: c.Query("development"), Archived: c.Query("arquivados") == "1"}
 }
 
 func bind(c *gin.Context, req any) bool {
@@ -196,7 +240,7 @@ func (h *LeadHandler) respond(c *gin.Context, status int, data any, err error, m
 	switch {
 	case err == nil:
 		api.Respond(c, status, data)
-	case errors.Is(err, lead.ErrNotFound), errors.Is(err, lead.ErrShowroomNotFound):
+	case errors.Is(err, lead.ErrNotFound), errors.Is(err, lead.ErrShowroomNotFound), errors.Is(err, lead.ErrTemplateKey):
 		api.RespondError(c, http.StatusNotFound, err.Error())
 	case errors.Is(err, lead.ErrInvalidToken):
 		api.RespondError(c, http.StatusUnauthorized, err.Error())
@@ -205,7 +249,7 @@ func (h *LeadHandler) respond(c *gin.Context, status int, data any, err error, m
 	case errors.Is(err, lead.ErrAlreadyYours), errors.Is(err, lead.ErrPhoneTaken):
 		api.RespondError(c, http.StatusConflict, err.Error())
 	case errors.Is(err, lead.ErrInvalidClientName), errors.Is(err, lead.ErrInvalidDevelopment), errors.Is(err, lead.ErrInvalidFile),
-		errors.Is(err, lead.ErrTooManyRows):
+		errors.Is(err, lead.ErrTooManyRows), errors.Is(err, lead.ErrInvalidProfile), errors.Is(err, lead.ErrInvalidTemplate):
 		api.RespondError(c, http.StatusBadRequest, err.Error())
 	case errors.Is(err, lead.ErrInvalidEvent), errors.Is(err, lead.ErrInvalidName), errors.Is(err, lead.ErrInvalidPhone),
 		errors.Is(err, lead.ErrInvalidProposal), errors.Is(err, lead.ErrInvalidSale), errors.Is(err, lead.ErrInvalidStage):

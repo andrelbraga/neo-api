@@ -104,6 +104,10 @@ type Lead struct {
 	Origin string `json:"origin"`
 	// InviteCode é o código do link de convite do cliente cadastrado pelo corretor; vazio para quem veio pelo link.
 	InviteCode string `json:"invite_code"`
+	// Profile é o perfil de compra (RN-03.17): moradia, investimento, veraneio ou vazio (sem perfil).
+	Profile string `json:"profile"`
+	// ArchivedAt é quando o corretor arquivou o cliente (RN-03.19); nulo nos ativos.
+	ArchivedAt *time.Time `json:"archived_at"`
 }
 
 // LayoutStats é a conversão de um layout: clientes, quantos enviaram proposta e quantos fecharam.
@@ -168,6 +172,8 @@ type Filter struct {
 	BrokerID      string
 	DevelopmentID string
 	Stage         string
+	// Archived lista os arquivados no lugar dos ativos (RN-03.19).
+	Archived bool
 }
 
 type Summary struct {

@@ -21,4 +21,9 @@ var (
 	ErrPhoneTaken         = errors.New("este WhatsApp já está cadastrado neste empreendimento")
 	ErrInvalidFile        = errors.New("arquivo inválido: envie uma planilha CSV com as colunas nome e telefone")
 	ErrTooManyRows        = errors.New("a planilha passa do limite de 500 clientes; divida em arquivos menores")
+
+	// Edição, arquivamento e modelos de mensagem (ADR-0025).
+	ErrInvalidProfile  = errors.New("perfil inválido: moradia, investimento, veraneio ou sem perfil")
+	ErrInvalidTemplate = errors.New("escreva a mensagem (até 1.000 caracteres)")
+	ErrTemplateKey     = errors.New("modelo não encontrado")
 )

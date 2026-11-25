@@ -19,7 +19,7 @@ const (
 		(SELECT count(*) FROM proposals p WHERE p.lead_id = l.id AND p.author = 'cliente' AND p.seen_at IS NULL),
 		(SELECT COALESCE(string_agg(DISTINCT e.kind, ','), '') FROM lead_events e WHERE e.lead_id = l.id),
 		l.last_activity_at, l.created_at, l.outcome_at, l.sale_value, l.sale_proposal_id, l.outcome_note, l.layout,
-		l.origin, COALESCE(l.invite_code, '')`
+		l.origin, COALESCE(l.invite_code, ''), l.profile, l.archived_at`
 	from = ` FROM leads l JOIN developments d ON d.id = l.development_id JOIN brokers b ON b.id = l.broker_id`
 
 	queryShowroomBroker = `
@@ -33,6 +33,7 @@ const (
 	// O limite protege a tela de uma lista sem fim; os filtros por etapa e empreendimento reduzem o resto.
 	queryList = `SELECT ` + columns + from + `
 		WHERE l.merged_into IS NULL AND ($1 = '' OR l.broker_id::text = $1) AND ($2 = '' OR l.development_id::text = $2) AND ($3 = '' OR l.stage = $3)
+			AND (l.archived_at IS NOT NULL) = $4
 		ORDER BY l.last_activity_at DESC LIMIT 500`
 	queryCreate = `INSERT INTO leads (development_id, broker_id, token_hash, layout) VALUES ($1, $2, $3, $4) RETURNING id`
 	// Eventos do cliente contam como atividade.
@@ -63,33 +64,35 @@ const (
 		WITH e AS (INSERT INTO lead_events (lead_id, kind, data) VALUES ($1, 'proposta', $2) RETURNING lead_id)
 		UPDATE leads SET last_activity_at = now() WHERE id = (SELECT lead_id FROM e)`
 	// Proposta leva o cliente à etapa "proposta" se ele ainda estava antes dela; desfecho não é tocado.
-	queryAdvance  = `UPDATE leads SET stage = 'proposta', updated_at = now() WHERE id = $1 AND stage IN ('novo', 'em_atendimento')`
-	querySeen     = `UPDATE proposals SET seen_at = now() WHERE lead_id = $1 AND author = 'cliente' AND seen_at IS NULL`
-	queryActivity = `
+	queryAdvance = `UPDATE leads SET stage = 'proposta', updated_at = now() WHERE id = $1 AND stage IN ('novo', 'em_atendimento')`
+	// Proposta nova do cliente tira o cadastro do arquivo: o corretor não pode deixar de vê-la (RN-03.19).
+	queryUnarchive = `UPDATE leads SET archived_at = NULL, updated_at = now() WHERE id = $1 AND archived_at IS NOT NULL`
+	querySeen      = `UPDATE proposals SET seen_at = now() WHERE lead_id = $1 AND author = 'cliente' AND seen_at IS NULL`
+	queryActivity  = `
 		SELECT l.id, l.name, d.name, b.first_name || ' ' || b.last_name, e.kind, e.data, e.created_at
 		FROM lead_events e JOIN leads l ON l.id = e.lead_id JOIN developments d ON d.id = l.development_id
 		JOIN brokers b ON b.id = l.broker_id
-		WHERE l.merged_into IS NULL AND ($1 = '' OR l.broker_id::text = $1) AND e.kind NOT IN ('tempo', 'secao')
+		WHERE l.merged_into IS NULL AND l.archived_at IS NULL AND ($1 = '' OR l.broker_id::text = $1) AND e.kind NOT IN ('tempo', 'secao')
 		ORDER BY e.created_at DESC, e.id DESC LIMIT 30`
 	querySummary = `
 		SELECT count(*),
 			count(*) FILTER (WHERE l.phone <> ''),
 			(SELECT count(*) FROM proposals p JOIN leads x ON x.id = p.lead_id
-				WHERE p.author = 'cliente' AND p.seen_at IS NULL AND ($1 = '' OR x.broker_id::text = $1)),
+				WHERE p.author = 'cliente' AND p.seen_at IS NULL AND x.archived_at IS NULL AND ($1 = '' OR x.broker_id::text = $1)),
 			COALESCE(sum(l.sale_value) FILTER (WHERE l.stage = 'fechado'), 0),
 			count(*) FILTER (WHERE l.stage = 'novo'),
 			count(*) FILTER (WHERE l.stage = 'em_atendimento'),
 			count(*) FILTER (WHERE l.stage = 'proposta'),
 			count(*) FILTER (WHERE l.stage = 'fechado'),
 			count(*) FILTER (WHERE l.stage = 'encerrado')
-		FROM leads l WHERE l.merged_into IS NULL AND ($1 = '' OR l.broker_id::text = $1)`
+		FROM leads l WHERE l.merged_into IS NULL AND l.archived_at IS NULL AND ($1 = '' OR l.broker_id::text = $1)`
 	// Conversão por layout (ADR-0019): clientes, com proposta do cliente e com venda fechada.
 	queryByLayout = `
 		SELECT l.layout, count(*),
 			count(*) FILTER (WHERE EXISTS (SELECT 1 FROM proposals p WHERE p.lead_id = l.id AND p.author = 'cliente')),
 			count(*) FILTER (WHERE l.stage = 'fechado'),
 			COALESCE(sum(l.sale_value) FILTER (WHERE l.stage = 'fechado'), 0)
-		FROM leads l WHERE l.merged_into IS NULL AND ($1 = '' OR l.broker_id::text = $1)
+		FROM leads l WHERE l.merged_into IS NULL AND l.archived_at IS NULL AND ($1 = '' OR l.broker_id::text = $1)
 			-- Cliente cadastrado pelo corretor só conta no layout depois de abrir o link (RN-03.16).
 			AND (l.origin = 'link' OR EXISTS (SELECT 1 FROM lead_events e WHERE e.lead_id = l.id AND e.kind = 'visita'))
 		GROUP BY l.layout`
@@ -112,9 +115,18 @@ const (
 		a AS (INSERT INTO leads (development_id, broker_id, token_hash, layout, merged_into) SELECT development_id, broker_id, $2, $3, id FROM k)
 		UPDATE leads SET layout = $3, updated_at = now()
 		WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM lead_events e WHERE e.lead_id = $1 AND e.kind = 'visita')`
-	queryMoveEvents    = `UPDATE lead_events SET lead_id = $1 WHERE lead_id = $2`
-	queryMoveProposals = `UPDATE proposals SET lead_id = $1 WHERE lead_id = $2`
-	queryMarkMerged    = `UPDATE leads SET merged_into = $1, updated_at = now() WHERE id = $2 OR merged_into = $2`
+	// Edição do corretor: o evento guarda nome e WhatsApp de antes (como na troca feita pelo cliente, RN-03.10).
+	queryUpdate       = `UPDATE leads SET name = $2, phone = $3, profile = $4, updated_at = now() WHERE id = $1 AND merged_into IS NULL`
+	queryEditEvent    = `INSERT INTO lead_events (lead_id, kind, data) VALUES ($1, 'edicao', $2)`
+	queryArchive      = `UPDATE leads SET archived_at = CASE WHEN $2 THEN COALESCE(archived_at, now()) END, updated_at = now() WHERE id = $1 AND merged_into IS NULL`
+	queryTemplates    = `SELECT profile, tone, body FROM message_templates WHERE broker_id = $1`
+	querySaveTemplate = `
+		INSERT INTO message_templates (broker_id, profile, tone, body) VALUES ($1, $2, $3, $4)
+		ON CONFLICT (broker_id, profile, tone) DO UPDATE SET body = EXCLUDED.body, updated_at = now()`
+	queryDeleteTemplate = `DELETE FROM message_templates WHERE broker_id = $1 AND profile = $2 AND tone = $3`
+	queryMoveEvents     = `UPDATE lead_events SET lead_id = $1 WHERE lead_id = $2`
+	queryMoveProposals  = `UPDATE proposals SET lead_id = $1 WHERE lead_id = $2`
+	queryMarkMerged     = `UPDATE leads SET merged_into = $1, updated_at = now() WHERE id = $2 OR merged_into = $2`
 	// O que ficou recebe o nome mais recente e a atividade mais recente dos juntados.
 	queryTouchKept = `
 		UPDATE leads k SET name = s.name, last_activity_at = GREATEST(k.last_activity_at, s.last_activity_at), updated_at = now()
@@ -192,7 +204,7 @@ func (r *LeadRepository) Get(ctx context.Context, id string) (lead.Lead, error) 
 }
 
 func (r *LeadRepository) List(ctx context.Context, f lead.Filter) ([]lead.Lead, error) {
-	rows, err := r.db.QueryContext(ctx, queryList, f.BrokerID, f.DevelopmentID, f.Stage)
+	rows, err := r.db.QueryContext(ctx, queryList, f.BrokerID, f.DevelopmentID, f.Stage, f.Archived)
 	if err != nil {
 		return nil, fmt.Errorf("list leads: %w", err)
 	}
@@ -285,6 +297,9 @@ func (r *LeadRepository) AddProposal(ctx context.Context, leadID string, p lead.
 		return out, notFound(err, "add proposal")
 	}
 	if p.Author == lead.AuthorClient {
+		if _, err = tx.ExecContext(ctx, queryUnarchive, leadID); err != nil {
+			return out, fmt.Errorf("unarchive: %w", err)
+		}
 		data, _ := json.Marshal(map[string]any{"proposal_id": out.ID, "resumo": p.Summary, "observacao": p.Note, "autorizou_contrato": p.WantsContract})
 		if _, err = tx.ExecContext(ctx, queryProposalEvent, leadID, data); err != nil {
 			return out, fmt.Errorf("proposal event: %w", err)
@@ -444,15 +459,94 @@ func (r *LeadRepository) AddAlias(ctx context.Context, leadID, tokenHash, layout
 	return nil
 }
 
+// Update troca nome, WhatsApp e perfil e, com eventData, grava o evento de edição, na mesma transação.
+func (r *LeadRepository) Update(ctx context.Context, id string, req lead.UpdateRequest, eventData []byte) (out lead.Lead, err error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return out, fmt.Errorf("update lead: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	res, err := tx.ExecContext(ctx, queryUpdate, id, req.Name, req.Phone, req.Profile)
+	if err != nil {
+		return out, notFound(err, "update lead")
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return out, lead.ErrNotFound
+	}
+	if len(eventData) > 0 {
+		if _, err = tx.ExecContext(ctx, queryEditEvent, id, eventData); err != nil {
+			return out, fmt.Errorf("edit event: %w", err)
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return out, fmt.Errorf("update lead: %w", err)
+	}
+	return r.Get(ctx, id)
+}
+
+// SetArchived arquiva (mantendo a data do primeiro arquivamento) ou restaura o cliente.
+func (r *LeadRepository) SetArchived(ctx context.Context, id string, archived bool) (lead.Lead, error) {
+	res, err := r.db.ExecContext(ctx, queryArchive, id, archived)
+	if err != nil {
+		return lead.Lead{}, notFound(err, "archive lead")
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return lead.Lead{}, lead.ErrNotFound
+	}
+	return r.Get(ctx, id)
+}
+
+func (r *LeadRepository) Templates(ctx context.Context, brokerID string) ([]lead.Template, error) {
+	rows, err := r.db.QueryContext(ctx, queryTemplates, brokerID)
+	if err != nil {
+		return nil, fmt.Errorf("templates: %w", err)
+	}
+	defer rows.Close() //nolint:errcheck
+	list := []lead.Template{}
+	for rows.Next() {
+		t := lead.Template{Custom: true}
+		if err := rows.Scan(&t.Profile, &t.Tone, &t.Body); err != nil {
+			return nil, fmt.Errorf("scan template: %w", err)
+		}
+		list = append(list, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("templates: %w", err)
+	}
+	return list, nil
+}
+
+func (r *LeadRepository) SaveTemplate(ctx context.Context, brokerID string, t lead.Template) error {
+	if _, err := r.db.ExecContext(ctx, querySaveTemplate, brokerID, t.Profile, t.Tone, t.Body); err != nil {
+		return fmt.Errorf("save template: %w", err)
+	}
+	return nil
+}
+
+func (r *LeadRepository) DeleteTemplate(ctx context.Context, brokerID, profile, tone string) error {
+	if _, err := r.db.ExecContext(ctx, queryDeleteTemplate, brokerID, profile, tone); err != nil {
+		return fmt.Errorf("delete template: %w", err)
+	}
+	return nil
+}
+
 func scan(s scanner) (lead.Lead, error) {
 	var l lead.Lead
 	var signals string
 	var outcomeAt sql.NullTime
 	var saleValue sql.NullFloat64
 	var saleProposal sql.NullString
+	var archivedAt sql.NullTime
 	err := s.Scan(&l.ID, &l.DevelopmentID, &l.DevelopmentName, &l.DevelopmentSlug, &l.BrokerID, &l.BrokerName, &l.BrokerCode,
 		&l.Name, &l.Phone, &l.Stage, &l.EventsCount, &l.NewProposals, &signals, &l.LastActivityAt, &l.CreatedAt,
-		&outcomeAt, &saleValue, &saleProposal, &l.OutcomeNote, &l.Layout, &l.Origin, &l.InviteCode)
+		&outcomeAt, &saleValue, &saleProposal, &l.OutcomeNote, &l.Layout, &l.Origin, &l.InviteCode, &l.Profile, &archivedAt)
+	if archivedAt.Valid {
+		l.ArchivedAt = &archivedAt.Time
+	}
 	if outcomeAt.Valid {
 		l.OutcomeAt = &outcomeAt.Time
 	}

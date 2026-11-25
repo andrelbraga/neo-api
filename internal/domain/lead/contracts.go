@@ -39,6 +39,15 @@ type Repository interface {
 	// AddAlias liga um novo token de navegador ao cliente (um cadastro juntado a ele) e, se o cliente ainda
 	// não tinha visita, grava o layout desta primeira visita.
 	AddAlias(ctx context.Context, leadID, tokenHash, layout string) error
+
+	// Edição, arquivamento e modelos de mensagem (ADR-0025).
+	// Update troca nome, WhatsApp e perfil; eventData não vazio grava o evento de edição com os dados de antes.
+	Update(ctx context.Context, id string, r UpdateRequest, eventData []byte) (Lead, error)
+	SetArchived(ctx context.Context, id string, archived bool) (Lead, error)
+	// Templates devolve os textos que o corretor mudou, por perfil e tom.
+	Templates(ctx context.Context, brokerID string) ([]Template, error)
+	SaveTemplate(ctx context.Context, brokerID string, t Template) error
+	DeleteTemplate(ctx context.Context, brokerID, profile, tone string) error
 }
 
 // Developments é o que o showroom usa do empreendimento: só o publicado, pelo endereço.
@@ -67,6 +76,15 @@ type BrokerService interface {
 	// Create cadastra um cliente à mão; Import, os da planilha CSV (RN-03.16). Com dryRun, Import só confere.
 	Create(ctx context.Context, userID string, r NewClientRequest) (Lead, error)
 	Import(ctx context.Context, userID, developmentID string, data []byte, dryRun bool) (ImportReport, error)
+	// Update edita nome, WhatsApp e perfil; Archive e Restore são o "excluir" sem apagar nada (ADR-0025).
+	Update(ctx context.Context, userID, id string, r UpdateRequest) (Lead, error)
+	Archive(ctx context.Context, userID, id string) (Lead, error)
+	Restore(ctx context.Context, userID, id string) (Lead, error)
+	// Templates são os modelos de mensagem do corretor: os dele e, no resto, o padrão.
+	Templates(ctx context.Context, userID string) ([]Template, error)
+	SaveTemplate(ctx context.Context, userID, profile, tone string, r TemplateRequest) (Template, error)
+	// ResetTemplate volta o modelo ao padrão.
+	ResetTemplate(ctx context.Context, userID, profile, tone string) (Template, error)
 }
 
 // AdminService é a visão de tudo no admin, sem marcar propostas como vistas.

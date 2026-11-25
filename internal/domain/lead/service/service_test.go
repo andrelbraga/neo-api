@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,11 +29,14 @@ type memRepo struct {
 	invites     map[string]string
 	aliases     map[string]string
 	unpublished bool
+	// Edição e modelos (ADR-0025): eventos de edição e textos do corretor por "corretor/perfil/tom".
+	edits     map[string][]string
+	templates map[string]string
 }
 
 func newMem() *memRepo {
 	return &memRepo{leads: map[string]*lead.Lead{}, byHash: map[string]string{}, events: map[string][]string{}, proposals: map[string][]lead.Proposal{},
-		invites: map[string]string{}, aliases: map[string]string{}}
+		invites: map[string]string{}, aliases: map[string]string{}, edits: map[string][]string{}, templates: map[string]string{}}
 }
 
 func (m *memRepo) fail(op string) error {
@@ -235,6 +239,51 @@ func (m *memRepo) AddAlias(_ context.Context, id, h, layout string) error {
 		m.leads[id].Layout = layout
 	}
 	return nil
+}
+
+func (m *memRepo) Update(_ context.Context, id string, r lead.UpdateRequest, data []byte) (lead.Lead, error) {
+	if err := m.fail("update"); err != nil {
+		return lead.Lead{}, err
+	}
+	l := m.leads[id]
+	l.Name, l.Phone, l.Profile = r.Name, r.Phone, r.Profile
+	if len(data) > 0 {
+		m.edits[id] = append(m.edits[id], string(data))
+	}
+	return *l, nil
+}
+func (m *memRepo) SetArchived(_ context.Context, id string, archived bool) (lead.Lead, error) {
+	if err := m.fail("archive"); err != nil {
+		return lead.Lead{}, err
+	}
+	l := m.leads[id]
+	l.ArchivedAt = nil
+	if archived {
+		now := time.Now()
+		l.ArchivedAt = &now
+	}
+	return *l, nil
+}
+func (m *memRepo) Templates(_ context.Context, brokerID string) ([]lead.Template, error) {
+	if err := m.fail("templates"); err != nil {
+		return nil, err
+	}
+	out := []lead.Template{}
+	for k, body := range m.templates {
+		parts := strings.Split(k, "/")
+		if parts[0] == brokerID {
+			out = append(out, lead.Template{Profile: parts[1], Tone: parts[2], Body: body, Custom: true})
+		}
+	}
+	return out, nil
+}
+func (m *memRepo) SaveTemplate(_ context.Context, brokerID string, t lead.Template) error {
+	m.templates[brokerID+"/"+t.Profile+"/"+t.Tone] = t.Body
+	return m.fail("save-template")
+}
+func (m *memRepo) DeleteTemplate(_ context.Context, brokerID, profile, tone string) error {
+	delete(m.templates, brokerID+"/"+profile+"/"+tone)
+	return m.fail("delete-template")
 }
 
 type fakeDevs struct{ err error }
