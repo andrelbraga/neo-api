@@ -180,3 +180,12 @@ O CI da `main` falhava desde `aad2395` em dois testes de integração, ambos des
   - ficha com editar, arquivar ou restaurar, perfil e aviso de arquivado; "Mensagem no WhatsApp" escolhe perfil e tom e deixa editar o texto antes de abrir;
   - "Meus modelos" (`/painel/mensagens`) para o corretor ajustar os textos, com `{nome}`, `{empreendimento}`, `{link}` e `{corretor}`.
 - Testes: API com lint, unitários e integração (cobertura de `internal/` em 95,3%); app com 96 testes. Não foi conferido no navegador.
+
+## 24/11/2026 — Chegada exclusiva na apresentação
+
+- ADR-0026, RN-03.21. A ponte abre a apresentação (layouts A e B) com a chegada da imagem de `resources-neo/` (convite da v12):
+  - logo Neo360 e "Um convite de {corretor} para você";
+  - "Boa noite, {nome}." pelo horário do aparelho, boas-vindas com o empreendimento e "{corretor} · seu corretor";
+  - cartão com a capa, "Seu próximo lugar em {cidade}." e "Conhecer esta oportunidade →".
+- Uma vez por sessão do navegador; quem volta lê "Que bom te ver de novo." O título da aba vira "{empreendimento} · preparado para {nome}". Fecha no botão ou no Esc.
+- Só documentação neste repositório (a ponte fica no neo-app). Testes: `bridge.test.ts` roda a ponte com a API simulada (primeiro teste automatizado da ponte). Conferido em prints do Chrome em 390 px e 1440 px com uma API simulada; não foi conferido com a API real.
