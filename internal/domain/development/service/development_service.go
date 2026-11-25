@@ -41,3 +41,11 @@ func (s *DevelopmentService) Update(ctx context.Context, id string, r developmen
 	}
 	return s.repo.Update(ctx, id, valid)
 }
+
+func (s *DevelopmentService) SavePage(ctx context.Context, id string, c development.PageConfig) (development.Development, error) {
+	valid, err := c.Validate()
+	if err != nil {
+		return development.Development{}, err
+	}
+	return s.repo.SavePage(ctx, id, valid)
+}
