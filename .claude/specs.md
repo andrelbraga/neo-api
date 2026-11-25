@@ -217,3 +217,9 @@ O CI da `main` falhava desde `aad2395` em dois testes de integração, ambos des
   - a mensagem avulsa (`MessageComposer`) também pede a confirmação;
   - a mensagem enviada fica fora da jornada (não é visita).
 - Testes: API com lint, unitários e integração (cobertura de `internal/` em 95,4%); app com typecheck, lint e 112 testes. Não foi conferido no navegador.
+
+## 25/11/2026 — Seleção de clientes na lista para a fila de envio
+
+- Pedido: "Na lista dos clientes quero que tenha checkboxes e com a opção de enviar WhatsApp". ADR-0028 e RN-03.22 atualizadas.
+- App: `LeadsTable` ganha `selection` (checkbox por linha e "selecionar todos" no cabeçalho; sem WhatsApp, desligado), só no corretor e fora dos arquivados. Em Meus clientes, a barra "N selecionados · Limpar · Enviar WhatsApp" substitui o botão "Enviar mensagens"; a busca e a aba limpam a seleção. O `SendQueueDialog` recebe os marcados e só pede o tom.
+- API sem mudança. Testes do app: typecheck, lint e 113 testes. Não foi conferido no navegador.
