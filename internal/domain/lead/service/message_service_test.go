@@ -130,3 +130,39 @@ func TestTemplatesService(t *testing.T) {
 		assert.True(t, e1 != nil || e2 != nil || e3 != nil, op)
 	}
 }
+
+// RN-03.22: o envio confirmado na fila vira evento e tira o cliente de "novo"; quem está adiante não muda.
+func TestMessageSent(t *testing.T) {
+	ctx := context.Background()
+	repo := newMem()
+	s := newBroker(repo)
+	l, err := s.Create(ctx, "u-fab", lead.NewClientRequest{DevelopmentID: dev, Name: "Maria", Phone: "54999990000"})
+	require.NoError(t, err)
+	require.Equal(t, lead.StageNew, l.Stage)
+
+	got, err := s.MessageSent(ctx, "u-fab", l.ID, lead.MessageSentRequest{Profile: lead.ProfileHome, Tone: lead.ToneClose})
+	require.NoError(t, err)
+	assert.Equal(t, lead.StageWorking, got.Stage)
+	assert.NotNil(t, got.LastMessageAt)
+	assert.Equal(t, []string{`{"perfil":"moradia","tom":"proximo"}`}, repo.sent[l.ID])
+
+	repo.leads[l.ID].Stage = lead.StageProposal
+	got, err = s.MessageSent(ctx, "u-fab", l.ID, lead.MessageSentRequest{Profile: lead.ProfileGeneral, Tone: lead.ToneFormal})
+	require.NoError(t, err)
+	assert.Equal(t, lead.StageProposal, got.Stage, "reenviar é permitido e não volta a etapa")
+	assert.Len(t, repo.sent[l.ID], 2)
+
+	_, err = s.MessageSent(ctx, "u-fab", l.ID, lead.MessageSentRequest{Profile: "x", Tone: lead.ToneFormal})
+	assert.ErrorIs(t, err, lead.ErrInvalidMessage)
+	_, err = s.MessageSent(ctx, "u-ana", l.ID, lead.MessageSentRequest{Profile: lead.ProfileHome, Tone: lead.ToneClose})
+	assert.ErrorIs(t, err, lead.ErrNotFound, "só o dono registra")
+
+	repo.leads[l.ID].Phone = ""
+	_, err = s.MessageSent(ctx, "u-fab", l.ID, lead.MessageSentRequest{Profile: lead.ProfileHome, Tone: lead.ToneClose})
+	assert.ErrorIs(t, err, lead.ErrNoPhone)
+
+	repo.leads[l.ID].Phone = "54999990000"
+	repo.failOn = "message-sent"
+	_, err = s.MessageSent(ctx, "u-fab", l.ID, lead.MessageSentRequest{Profile: lead.ProfileHome, Tone: lead.ToneClose})
+	assert.EqualError(t, err, "message-sent")
+}

@@ -48,6 +48,8 @@ type Repository interface {
 	Templates(ctx context.Context, brokerID string) ([]Template, error)
 	SaveTemplate(ctx context.Context, brokerID string, t Template) error
 	DeleteTemplate(ctx context.Context, brokerID, profile, tone string) error
+	// MessageSent grava o evento de mensagem enviada e leva o cliente de novo para em atendimento (RN-03.22).
+	MessageSent(ctx context.Context, id string, eventData []byte) (Lead, error)
 }
 
 // Developments é o que o showroom usa do empreendimento: só o publicado, pelo endereço.
@@ -85,6 +87,8 @@ type BrokerService interface {
 	SaveTemplate(ctx context.Context, userID, profile, tone string, r TemplateRequest) (Template, error)
 	// ResetTemplate volta o modelo ao padrão.
 	ResetTemplate(ctx context.Context, userID, profile, tone string) (Template, error)
+	// MessageSent registra o envio confirmado pelo corretor na fila de envio (ADR-0028).
+	MessageSent(ctx context.Context, userID, id string, r MessageSentRequest) (Lead, error)
 }
 
 // AdminService é a visão de tudo no admin, sem marcar propostas como vistas.

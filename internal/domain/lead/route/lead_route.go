@@ -30,6 +30,7 @@ func Register(app *api.App, developments lead.Developments) {
 	me.PATCH("/me/leads/:id", h.UpdateClient)
 	me.DELETE("/me/leads/:id", h.ArchiveClient)
 	me.POST("/me/leads/:id/restore", h.RestoreClient)
+	me.POST("/me/leads/:id/message-sent", h.MessageSent)
 	me.GET("/me/message-templates", h.Templates)
 	me.PUT("/me/message-templates/:profile/:tone", h.SaveTemplate)
 	me.DELETE("/me/message-templates/:profile/:tone", h.ResetTemplate)

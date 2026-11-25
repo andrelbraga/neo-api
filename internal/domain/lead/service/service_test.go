@@ -32,11 +32,13 @@ type memRepo struct {
 	// Edição e modelos (ADR-0025): eventos de edição e textos do corretor por "corretor/perfil/tom".
 	edits     map[string][]string
 	templates map[string]string
+	// Fila de envio (ADR-0028): eventos de mensagem enviada por cliente.
+	sent map[string][]string
 }
 
 func newMem() *memRepo {
 	return &memRepo{leads: map[string]*lead.Lead{}, byHash: map[string]string{}, events: map[string][]string{}, proposals: map[string][]lead.Proposal{},
-		invites: map[string]string{}, aliases: map[string]string{}, edits: map[string][]string{}, templates: map[string]string{}}
+		invites: map[string]string{}, aliases: map[string]string{}, edits: map[string][]string{}, templates: map[string]string{}, sent: map[string][]string{}}
 }
 
 func (m *memRepo) fail(op string) error {
@@ -261,6 +263,19 @@ func (m *memRepo) SetArchived(_ context.Context, id string, archived bool) (lead
 	if archived {
 		now := time.Now()
 		l.ArchivedAt = &now
+	}
+	return *l, nil
+}
+func (m *memRepo) MessageSent(_ context.Context, id string, data []byte) (lead.Lead, error) {
+	if err := m.fail("message-sent"); err != nil {
+		return lead.Lead{}, err
+	}
+	l := m.leads[id]
+	m.sent[id] = append(m.sent[id], string(data))
+	now := time.Now()
+	l.LastMessageAt = &now
+	if l.Stage == lead.StageNew {
+		l.Stage = lead.StageWorking
 	}
 	return *l, nil
 }

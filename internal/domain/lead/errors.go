@@ -26,4 +26,8 @@ var (
 	ErrInvalidProfile  = errors.New("perfil inválido: moradia, investimento, veraneio ou sem perfil")
 	ErrInvalidTemplate = errors.New("escreva a mensagem (até 1.000 caracteres)")
 	ErrTemplateKey     = errors.New("modelo não encontrado")
+
+	// Fila de envio pelo WhatsApp (ADR-0028).
+	ErrInvalidMessage = errors.New("escolha o perfil e o tom da mensagem")
+	ErrNoPhone        = errors.New("este cliente não tem WhatsApp")
 )
