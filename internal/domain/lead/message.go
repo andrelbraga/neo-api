@@ -22,6 +22,8 @@ const (
 
 	// EventEdit é a troca de nome ou WhatsApp feita pelo corretor, com os dados de antes.
 	EventEdit = "edicao"
+	// EventMessageSent é a mensagem que o corretor diz ter enviado pelo WhatsApp (RN-03.22), com perfil e tom.
+	EventMessageSent = "mensagem_enviada"
 
 	maxTemplate = 1000
 )
@@ -48,6 +50,19 @@ type Template struct {
 	Tone    string `json:"tone"`
 	Body    string `json:"body"`
 	Custom  bool   `json:"custom"`
+}
+
+// MessageSentRequest é o perfil e o tom da mensagem que o corretor enviou pelo WhatsApp (RN-03.22).
+type MessageSentRequest struct {
+	Profile string `json:"profile"`
+	Tone    string `json:"tone"`
+}
+
+func (r MessageSentRequest) Validate() error {
+	if !ValidTemplateKey(r.Profile, r.Tone) {
+		return ErrInvalidMessage
+	}
+	return nil
 }
 
 type TemplateRequest struct {

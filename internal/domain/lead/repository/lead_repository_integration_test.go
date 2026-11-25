@@ -437,3 +437,48 @@ func TestLeadRepository_EditArchiveTemplates(t *testing.T) {
 	assert.Error(t, err)
 	assert.Error(t, repo.DeleteTemplate(ctx, brokerID, lead.ProfileHome, lead.ToneClose))
 }
+
+// ADR-0028: mensagem enviada pela fila — evento, etapa e data do último envio, fora dos sinais e do feed.
+func TestLeadRepository_MessageSent(t *testing.T) {
+	database := testutil.MigratedDB(t, "../../../../sql/migrations")
+	repo := NewLeadRepository(database)
+	ctx := context.Background()
+
+	var devID, userID, brokerID string
+	require.NoError(t, database.QueryRowContext(ctx, `SELECT id FROM developments WHERE slug = 'boa-vista-residencial'`).Scan(&devID))
+	require.NoError(t, database.QueryRowContext(ctx,
+		`INSERT INTO users (name, email, password_hash, role) VALUES ('X', 'fab@x.com', 'h', 'corretor') RETURNING id`).Scan(&userID))
+	require.NoError(t, database.QueryRowContext(ctx,
+		`INSERT INTO brokers (user_id, first_name, last_name, phone, creci, code) VALUES ($1, 'Fabiano', 'Souza', '54999990000', '', 'FAB-0001') RETURNING id`,
+		userID).Scan(&brokerID))
+	l, err := repo.CreateByBroker(ctx, brokerID, "h1", "conv1", lead.NewClientRequest{DevelopmentID: devID, Name: "Maria", Phone: "54988887777"})
+	require.NoError(t, err)
+	assert.Nil(t, l.LastMessageAt)
+	before := l.LastActivityAt
+
+	got, err := repo.MessageSent(ctx, l.ID, []byte(`{"perfil":"moradia","tom":"formal"}`))
+	require.NoError(t, err)
+	assert.Equal(t, lead.StageWorking, got.Stage, "novo passa para em atendimento")
+	require.NotNil(t, got.LastMessageAt)
+	assert.Empty(t, got.Signals, "envio do corretor não é sinal do cliente")
+	assert.Equal(t, before.Unix(), got.LastActivityAt.Unix(), "nem atividade do cliente")
+	feed, err := repo.Activity(ctx, brokerID)
+	require.NoError(t, err)
+	assert.Empty(t, feed, "nem entra no feed")
+	events, err := repo.Events(ctx, l.ID)
+	require.NoError(t, err)
+	assert.Equal(t, lead.EventMessageSent, events[len(events)-1].Kind, "mas fica na jornada da ficha")
+
+	_, err = repo.SetStage(ctx, l.ID, lead.StageRequest{Stage: lead.StageProposal})
+	require.NoError(t, err)
+	got, err = repo.MessageSent(ctx, l.ID, []byte(`{}`))
+	require.NoError(t, err)
+	assert.Equal(t, lead.StageProposal, got.Stage, "quem está adiante não muda")
+	list, err := repo.List(ctx, lead.Filter{BrokerID: brokerID})
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.NotNil(t, list[0].LastMessageAt, "a lista traz o último envio")
+
+	_, err = repo.MessageSent(ctx, "00000000-0000-0000-0000-000000000000", []byte(`{}`))
+	assert.Error(t, err, "cliente inexistente")
+}

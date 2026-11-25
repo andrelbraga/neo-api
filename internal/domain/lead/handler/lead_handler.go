@@ -162,6 +162,16 @@ func (h *LeadHandler) UpdateClient(c *gin.Context) {
 	h.respond(c, http.StatusOK, l, err, "update client failed")
 }
 
+// MessageSent godoc: POST /api/me/leads/:id/message-sent (fila de envio, ADR-0028)
+func (h *LeadHandler) MessageSent(c *gin.Context) {
+	var req lead.MessageSentRequest
+	if !bind(c, &req) {
+		return
+	}
+	l, err := h.broker.MessageSent(c.Request.Context(), c.GetString("userID"), c.Param("id"), req)
+	h.respond(c, http.StatusOK, l, err, "message sent failed")
+}
+
 // ArchiveClient godoc: DELETE /api/me/leads/:id (arquiva; nada é apagado)
 func (h *LeadHandler) ArchiveClient(c *gin.Context) {
 	l, err := h.broker.Archive(c.Request.Context(), c.GetString("userID"), c.Param("id"))
@@ -249,7 +259,8 @@ func (h *LeadHandler) respond(c *gin.Context, status int, data any, err error, m
 	case errors.Is(err, lead.ErrAlreadyYours), errors.Is(err, lead.ErrPhoneTaken):
 		api.RespondError(c, http.StatusConflict, err.Error())
 	case errors.Is(err, lead.ErrInvalidClientName), errors.Is(err, lead.ErrInvalidDevelopment), errors.Is(err, lead.ErrInvalidFile),
-		errors.Is(err, lead.ErrTooManyRows), errors.Is(err, lead.ErrInvalidProfile), errors.Is(err, lead.ErrInvalidTemplate):
+		errors.Is(err, lead.ErrTooManyRows), errors.Is(err, lead.ErrInvalidProfile), errors.Is(err, lead.ErrInvalidTemplate),
+		errors.Is(err, lead.ErrInvalidMessage), errors.Is(err, lead.ErrNoPhone):
 		api.RespondError(c, http.StatusBadRequest, err.Error())
 	case errors.Is(err, lead.ErrInvalidEvent), errors.Is(err, lead.ErrInvalidName), errors.Is(err, lead.ErrInvalidPhone),
 		errors.Is(err, lead.ErrInvalidProposal), errors.Is(err, lead.ErrInvalidSale), errors.Is(err, lead.ErrInvalidStage):

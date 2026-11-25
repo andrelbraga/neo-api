@@ -17,9 +17,10 @@ const (
 		l.name, l.phone, l.stage,
 		(SELECT count(*) FROM lead_events e WHERE e.lead_id = l.id),
 		(SELECT count(*) FROM proposals p WHERE p.lead_id = l.id AND p.author = 'cliente' AND p.seen_at IS NULL),
-		(SELECT COALESCE(string_agg(DISTINCT e.kind, ','), '') FROM lead_events e WHERE e.lead_id = l.id),
+		(SELECT COALESCE(string_agg(DISTINCT e.kind, ','), '') FROM lead_events e WHERE e.lead_id = l.id AND e.kind <> 'mensagem_enviada'),
 		l.last_activity_at, l.created_at, l.outcome_at, l.sale_value, l.sale_proposal_id, l.outcome_note, l.layout,
-		l.origin, COALESCE(l.invite_code, ''), l.profile, l.archived_at`
+		l.origin, COALESCE(l.invite_code, ''), l.profile, l.archived_at,
+		(SELECT max(e.created_at) FROM lead_events e WHERE e.lead_id = l.id AND e.kind = 'mensagem_enviada')`
 	from = ` FROM leads l JOIN developments d ON d.id = l.development_id JOIN brokers b ON b.id = l.broker_id`
 
 	queryShowroomBroker = `
@@ -72,7 +73,7 @@ const (
 		SELECT l.id, l.name, d.name, b.first_name || ' ' || b.last_name, e.kind, e.data, e.created_at
 		FROM lead_events e JOIN leads l ON l.id = e.lead_id JOIN developments d ON d.id = l.development_id
 		JOIN brokers b ON b.id = l.broker_id
-		WHERE l.merged_into IS NULL AND l.archived_at IS NULL AND ($1 = '' OR l.broker_id::text = $1) AND e.kind NOT IN ('tempo', 'secao')
+		WHERE l.merged_into IS NULL AND l.archived_at IS NULL AND ($1 = '' OR l.broker_id::text = $1) AND e.kind NOT IN ('tempo', 'secao', 'mensagem_enviada')
 		ORDER BY e.created_at DESC, e.id DESC LIMIT 30`
 	querySummary = `
 		SELECT count(*),
@@ -116,8 +117,13 @@ const (
 		UPDATE leads SET layout = $3, updated_at = now()
 		WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM lead_events e WHERE e.lead_id = $1 AND e.kind = 'visita')`
 	// Edição do corretor: o evento guarda nome e WhatsApp de antes (como na troca feita pelo cliente, RN-03.10).
-	queryUpdate       = `UPDATE leads SET name = $2, phone = $3, profile = $4, updated_at = now() WHERE id = $1 AND merged_into IS NULL`
-	queryEditEvent    = `INSERT INTO lead_events (lead_id, kind, data) VALUES ($1, 'edicao', $2)`
+	queryUpdate    = `UPDATE leads SET name = $2, phone = $3, profile = $4, updated_at = now() WHERE id = $1 AND merged_into IS NULL`
+	queryEditEvent = `INSERT INTO lead_events (lead_id, kind, data) VALUES ($1, 'edicao', $2)`
+	// A mensagem enviada é do corretor: não conta como atividade do cliente, não é sinal nem entra no feed.
+	// Só tira de "novo"; quem já está adiante fica onde está (RN-03.22).
+	queryMessageSent = `
+		WITH e AS (INSERT INTO lead_events (lead_id, kind, data) VALUES ($1, 'mensagem_enviada', $2) RETURNING lead_id)
+		UPDATE leads SET stage = 'em_atendimento', updated_at = now() WHERE id = (SELECT lead_id FROM e) AND stage = 'novo'`
 	queryArchive      = `UPDATE leads SET archived_at = CASE WHEN $2 THEN COALESCE(archived_at, now()) END, updated_at = now() WHERE id = $1 AND merged_into IS NULL`
 	queryTemplates    = `SELECT profile, tone, body FROM message_templates WHERE broker_id = $1`
 	querySaveTemplate = `
@@ -534,18 +540,29 @@ func (r *LeadRepository) DeleteTemplate(ctx context.Context, brokerID, profile, 
 	return nil
 }
 
+// MessageSent grava o envio e, se o cliente ainda estava em novo, o leva para em atendimento.
+func (r *LeadRepository) MessageSent(ctx context.Context, id string, eventData []byte) (lead.Lead, error) {
+	if _, err := r.db.ExecContext(ctx, queryMessageSent, id, eventData); err != nil {
+		return lead.Lead{}, notFound(err, "message sent")
+	}
+	return r.Get(ctx, id)
+}
+
 func scan(s scanner) (lead.Lead, error) {
 	var l lead.Lead
 	var signals string
 	var outcomeAt sql.NullTime
 	var saleValue sql.NullFloat64
 	var saleProposal sql.NullString
-	var archivedAt sql.NullTime
+	var archivedAt, lastMessageAt sql.NullTime
 	err := s.Scan(&l.ID, &l.DevelopmentID, &l.DevelopmentName, &l.DevelopmentSlug, &l.BrokerID, &l.BrokerName, &l.BrokerCode,
 		&l.Name, &l.Phone, &l.Stage, &l.EventsCount, &l.NewProposals, &signals, &l.LastActivityAt, &l.CreatedAt,
-		&outcomeAt, &saleValue, &saleProposal, &l.OutcomeNote, &l.Layout, &l.Origin, &l.InviteCode, &l.Profile, &archivedAt)
+		&outcomeAt, &saleValue, &saleProposal, &l.OutcomeNote, &l.Layout, &l.Origin, &l.InviteCode, &l.Profile, &archivedAt, &lastMessageAt)
 	if archivedAt.Valid {
 		l.ArchivedAt = &archivedAt.Time
+	}
+	if lastMessageAt.Valid {
+		l.LastMessageAt = &lastMessageAt.Time
 	}
 	if outcomeAt.Valid {
 		l.OutcomeAt = &outcomeAt.Time

@@ -116,3 +116,21 @@ func (s *BrokerService) ResetTemplate(ctx context.Context, userID, profile, tone
 	}
 	return lead.Template{Profile: profile, Tone: tone, Body: lead.DefaultTemplate(profile, tone)}, nil
 }
+
+// MessageSent registra a mensagem que o corretor confirmou ter enviado pelo WhatsApp na fila de envio
+// (RN-03.22). Sem a API do WhatsApp, a confirmação é a palavra do corretor; a prova de leitura continua sendo
+// a visita do cliente pelo link. Cliente em novo passa para em atendimento.
+func (s *BrokerService) MessageSent(ctx context.Context, userID, id string, r lead.MessageSentRequest) (lead.Lead, error) {
+	if err := r.Validate(); err != nil {
+		return lead.Lead{}, err
+	}
+	l, err := s.own(ctx, userID, id)
+	if err != nil {
+		return lead.Lead{}, err
+	}
+	if l.Phone == "" {
+		return lead.Lead{}, lead.ErrNoPhone
+	}
+	data, _ := json.Marshal(map[string]string{"perfil": r.Profile, "tom": r.Tone})
+	return s.repo.MessageSent(ctx, l.ID, data)
+}

@@ -45,3 +45,9 @@ func TestTemplates(t *testing.T) {
 	_, err = TemplateRequest{Body: strings.Repeat("a", 1001)}.Validate()
 	assert.ErrorIs(t, err, ErrInvalidTemplate)
 }
+
+func TestMessageSentRequest_Validate(t *testing.T) {
+	require.NoError(t, MessageSentRequest{Profile: ProfileGeneral, Tone: ToneDirect}.Validate())
+	assert.ErrorIs(t, MessageSentRequest{Profile: ProfileHome}.Validate(), ErrInvalidMessage)
+	assert.ErrorIs(t, MessageSentRequest{Tone: ToneFormal}.Validate(), ErrInvalidMessage)
+}
