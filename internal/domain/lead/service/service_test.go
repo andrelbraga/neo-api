@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,10 +24,15 @@ type memRepo struct {
 	seen      []string
 	stages    []lead.StageRequest
 	failOn    string
+	// Cliente cadastrado pelo corretor: código do convite → id, e os cadastros juntados (alias) → id.
+	invites     map[string]string
+	aliases     map[string]string
+	unpublished bool
 }
 
 func newMem() *memRepo {
-	return &memRepo{leads: map[string]*lead.Lead{}, byHash: map[string]string{}, events: map[string][]string{}, proposals: map[string][]lead.Proposal{}}
+	return &memRepo{leads: map[string]*lead.Lead{}, byHash: map[string]string{}, events: map[string][]string{}, proposals: map[string][]lead.Proposal{},
+		invites: map[string]string{}, aliases: map[string]string{}}
 }
 
 func (m *memRepo) fail(op string) error {
@@ -174,6 +180,63 @@ func (m *memRepo) Summary(_ context.Context, brokerID string) (lead.Summary, err
 	return lead.Summary{Leads: n}, nil
 }
 
+func (m *memRepo) DevelopmentPublished(_ context.Context, id string) error {
+	if err := m.fail("published"); err != nil {
+		return err
+	}
+	if m.unpublished || id != "d-boa-vista" {
+		return lead.ErrInvalidDevelopment
+	}
+	return nil
+}
+func (m *memRepo) FindByPhone(_ context.Context, devID, phone string) (lead.Lead, error) {
+	if err := m.fail("by-phone"); err != nil {
+		return lead.Lead{}, err
+	}
+	for _, l := range m.leads {
+		if l.DevelopmentID == devID && l.Phone == phone {
+			return *l, nil
+		}
+	}
+	return lead.Lead{}, lead.ErrNotFound
+}
+func (m *memRepo) CreateByBroker(_ context.Context, brokerID, h, code string, c lead.NewClientRequest) (lead.Lead, error) {
+	if err := m.fail("create-by-broker"); err != nil {
+		return lead.Lead{}, err
+	}
+	id := fmt.Sprintf("l%d", len(m.leads)+1)
+	m.leads[id] = &lead.Lead{ID: id, DevelopmentID: c.DevelopmentID, BrokerID: brokerID, Name: c.Name, Phone: c.Phone, Stage: lead.StageNew,
+		Layout: "a", Origin: lead.OriginBroker, InviteCode: code}
+	m.byHash[h] = id
+	m.invites[code] = id
+	return *m.leads[id], nil
+}
+func (m *memRepo) FindByInvite(_ context.Context, devID, code string) (lead.Lead, error) {
+	if err := m.fail("by-invite"); err != nil {
+		return lead.Lead{}, err
+	}
+	id, ok := m.invites[code]
+	if !ok || m.leads[id].DevelopmentID != devID {
+		return lead.Lead{}, lead.ErrNotFound
+	}
+	return *m.leads[id], nil
+}
+func (m *memRepo) AddAlias(_ context.Context, id, h, layout string) error {
+	if err := m.fail("alias"); err != nil {
+		return err
+	}
+	m.byHash[h] = id
+	m.aliases[h] = id
+	visited := false
+	for _, e := range m.events[id] {
+		visited = visited || strings.HasPrefix(e, lead.EventVisit)
+	}
+	if !visited {
+		m.leads[id].Layout = layout
+	}
+	return nil
+}
+
 type fakeDevs struct{ err error }
 
 func (f fakeDevs) GetPublishedBySlug(_ context.Context, slug string) (development.Development, error) {
@@ -214,21 +277,21 @@ func TestVisit_OwnerIsFirstTouch(t *testing.T) {
 	repo := newMem()
 	s := newPublic(repo)
 
-	v, err := s.Visit(ctx, "boa-vista", "FAB-0001", "", "")
+	v, err := s.Visit(ctx, "boa-vista", "FAB-0001", "", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, "tok1", v.Token)
 	assert.Equal(t, "b-fab", repo.leads["l1"].BrokerID)
 	assert.Equal(t, []string{`visita{"codigo":"FAB-0001"}`}, repo.events["l1"])
 	assert.NotContains(t, repo.byHash, "tok1", "o banco guarda só o hash do token")
 
-	v, err = s.Visit(ctx, "boa-vista", "ANA-0002", "tok1", "")
+	v, err = s.Visit(ctx, "boa-vista", "ANA-0002", "tok1", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, "tok1", v.Token, "mesmo cliente")
 	assert.Len(t, repo.leads, 1)
 	assert.Equal(t, "b-fab", repo.leads["l1"].BrokerID, "chegou pelo link da Ana, mas continua do Fabiano")
 	assert.Equal(t, `visita{"codigo":"ANA-0002"}`, repo.events["l1"][1], "a visita guarda por qual link ele voltou")
 
-	v, err = s.Visit(ctx, "boa-vista", "ANA-0002", "token-desconhecido", "")
+	v, err = s.Visit(ctx, "boa-vista", "ANA-0002", "token-desconhecido", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, "tok2", v.Token, "token que não existe: cliente novo")
 	assert.Equal(t, "b-ana", repo.leads["l2"].BrokerID)
@@ -239,13 +302,13 @@ func TestVisit_Layout(t *testing.T) {
 	ctx := context.Background()
 	repo := newMem()
 	s := newPublic(repo)
-	_, err := s.Visit(ctx, "boa-vista", "FAB-0001", "", " B ")
+	_, err := s.Visit(ctx, "boa-vista", "FAB-0001", "", " B ", "")
 	require.NoError(t, err)
 	assert.Equal(t, "b", repo.leads["l1"].Layout)
-	_, err = s.Visit(ctx, "boa-vista", "FAB-0001", "tok1", "a")
+	_, err = s.Visit(ctx, "boa-vista", "FAB-0001", "tok1", "a", "")
 	require.NoError(t, err)
 	assert.Equal(t, "b", repo.leads["l1"].Layout, "volta pelo outro layout, mas conta no da primeira visita")
-	_, err = s.Visit(ctx, "boa-vista", "FAB-0001", "", "qualquer")
+	_, err = s.Visit(ctx, "boa-vista", "FAB-0001", "", "qualquer", "")
 	require.NoError(t, err)
 	assert.Equal(t, "a", repo.leads["l2"].Layout, "valor desconhecido é o layout A")
 }
@@ -254,22 +317,22 @@ func TestVisit_ReturnsContactAndOtherDevelopment(t *testing.T) {
 	ctx := context.Background()
 	repo := newMem()
 	s := newPublic(repo)
-	_, err := s.Visit(ctx, "boa-vista", "FAB-0001", "", "")
+	_, err := s.Visit(ctx, "boa-vista", "FAB-0001", "", "", "")
 	require.NoError(t, err)
 	repo.leads["l1"].Name, repo.leads["l1"].Phone = "Maria", "54999990000"
-	v, err := s.Visit(ctx, "boa-vista", "FAB-0001", "tok1", "")
+	v, err := s.Visit(ctx, "boa-vista", "FAB-0001", "tok1", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, lead.Visit{Token: "tok1", Name: "Maria", Phone: "54999990000"}, v, "o nome volta para a página")
 
 	repo.leads["l1"].DevelopmentID = "outro"
-	v, err = s.Visit(ctx, "boa-vista", "FAB-0001", "tok1", "")
+	v, err = s.Visit(ctx, "boa-vista", "FAB-0001", "tok1", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, "tok2", v.Token, "token de outro empreendimento vira cliente novo")
 }
 
 func TestVisit_Errors(t *testing.T) {
 	ctx := context.Background()
-	_, err := newPublic(newMem()).Visit(ctx, "x", "FAB-0001", "", "")
+	_, err := newPublic(newMem()).Visit(ctx, "x", "FAB-0001", "", "", "")
 	assert.ErrorIs(t, err, lead.ErrShowroomNotFound)
 
 	for _, op := range []string{"find", "create", "event"} {
@@ -277,7 +340,7 @@ func TestVisit_Errors(t *testing.T) {
 		s := newPublic(repo)
 		token := ""
 		if op == "event" {
-			_, err := s.Visit(ctx, "boa-vista", "FAB-0001", "", "")
+			_, err := s.Visit(ctx, "boa-vista", "FAB-0001", "", "", "")
 			require.NoError(t, err)
 			token = "tok1"
 		}
@@ -285,18 +348,18 @@ func TestVisit_Errors(t *testing.T) {
 			token = "qualquer"
 		}
 		repo.failOn = op
-		_, err := s.Visit(ctx, "boa-vista", "FAB-0001", token, "")
+		_, err := s.Visit(ctx, "boa-vista", "FAB-0001", token, "", "")
 		assert.EqualError(t, err, op)
 	}
 
 	repo := newMem()
 	repo.failOn = "event"
-	_, err = newPublic(repo).Visit(ctx, "boa-vista", "FAB-0001", "", "")
+	_, err = newPublic(repo).Visit(ctx, "boa-vista", "FAB-0001", "", "", "")
 	assert.EqualError(t, err, "event", "evento da primeira visita")
 
 	s := NewPublicService(newMem(), fakeDevs{})
 	s.newToken = func() (string, error) { return "", errors.New("rand") }
-	_, err = s.Visit(ctx, "boa-vista", "FAB-0001", "", "")
+	_, err = s.Visit(ctx, "boa-vista", "FAB-0001", "", "", "")
 	assert.EqualError(t, err, "rand")
 }
 
@@ -304,7 +367,7 @@ func TestTrackAndContact(t *testing.T) {
 	ctx := context.Background()
 	repo := newMem()
 	s := newPublic(repo)
-	_, err := s.Visit(ctx, "boa-vista", "FAB-0001", "", "")
+	_, err := s.Visit(ctx, "boa-vista", "FAB-0001", "", "", "")
 	require.NoError(t, err)
 
 	require.NoError(t, s.Track(ctx, "tok1", lead.EventRequest{Kind: "tour_3d", Data: json.RawMessage(`{"torre":"A"}`)}))
@@ -345,9 +408,9 @@ func TestPropose_SamePhoneSameClient(t *testing.T) {
 	ctx := context.Background()
 	repo := newMem()
 	s := newPublic(repo)
-	_, err := s.Visit(ctx, "boa-vista", "FAB-0001", "", "")
+	_, err := s.Visit(ctx, "boa-vista", "FAB-0001", "", "", "")
 	require.NoError(t, err)
-	_, err = s.Visit(ctx, "boa-vista", "ANA-0002", "", "") // outro navegador, link de outra corretora
+	_, err = s.Visit(ctx, "boa-vista", "ANA-0002", "", "", "") // outro navegador, link de outra corretora
 	require.NoError(t, err)
 	req := func(summary string) lead.ProposalRequest {
 		return lead.ProposalRequest{Name: "Maria", Phone: "54999990000", Summary: summary}
@@ -362,7 +425,7 @@ func TestPropose_SamePhoneSameClient(t *testing.T) {
 	require.Len(t, repo.leads, 1, "um cliente só")
 	assert.Equal(t, "b-fab", repo.leads["l1"].BrokerID, "fica com o dono do cadastro mais antigo")
 	assert.Len(t, repo.proposals["l1"], 2, "as duas propostas no mesmo cliente")
-	v, err := s.Visit(ctx, "boa-vista", "ANA-0002", "tok2", "")
+	v, err := s.Visit(ctx, "boa-vista", "ANA-0002", "tok2", "", "")
 	require.NoError(t, err)
 	assert.Equal(t, "tok2", v.Token, "o token do outro navegador continua valendo")
 }
@@ -372,7 +435,7 @@ func TestPropose(t *testing.T) {
 	ctx := context.Background()
 	repo := newMem()
 	s := newPublic(repo)
-	_, err := s.Visit(ctx, "boa-vista", "FAB-0001", "", "")
+	_, err := s.Visit(ctx, "boa-vista", "FAB-0001", "", "", "")
 	require.NoError(t, err)
 
 	req := lead.ProposalRequest{Name: "Maria", Phone: "(54) 99999-0000", Summary: "entrada de R$ 150 mil", Note: " carro na entrada ", WantsContract: true,
@@ -400,8 +463,8 @@ func TestBrokerService(t *testing.T) {
 	ctx := context.Background()
 	repo := newMem()
 	pub := newPublic(repo)
-	_, _ = pub.Visit(ctx, "boa-vista", "FAB-0001", "", "")
-	_, _ = pub.Visit(ctx, "boa-vista", "ANA-0002", "", "")
+	_, _ = pub.Visit(ctx, "boa-vista", "FAB-0001", "", "", "")
+	_, _ = pub.Visit(ctx, "boa-vista", "ANA-0002", "", "", "")
 	s := NewBrokerService(repo)
 
 	list, err := s.List(ctx, "u-fab", lead.Filter{BrokerID: "b-ana"})
@@ -489,8 +552,8 @@ func TestAdminService(t *testing.T) {
 	ctx := context.Background()
 	repo := newMem()
 	pub := newPublic(repo)
-	_, _ = pub.Visit(ctx, "boa-vista", "FAB-0001", "", "")
-	_, _ = pub.Visit(ctx, "boa-vista", "ANA-0002", "", "")
+	_, _ = pub.Visit(ctx, "boa-vista", "FAB-0001", "", "", "")
+	_, _ = pub.Visit(ctx, "boa-vista", "ANA-0002", "", "", "")
 	s := NewAdminService(repo)
 
 	list, err := s.List(ctx, lead.Filter{})

@@ -44,13 +44,23 @@ func (s *PublicService) Showroom(ctx context.Context, slug, code string) (lead.S
 // Visit registra a abertura do link. Com um token já conhecido para o mesmo empreendimento, o cliente
 // continua com o dono de antes, mesmo que tenha chegado pelo link de outro corretor (RN-03.1). O cliente
 // novo guarda o layout da apresentação em que chegou; quem volta mantém o da primeira visita (ADR-0019).
-func (s *PublicService) Visit(ctx context.Context, slug, code, token, layout string) (lead.Visit, error) {
+//
+// Com o código de um convite (RN-03.16), a visita cai na ficha do cliente que o corretor cadastrou: o
+// navegador ganha um token ligado a ela. Convite que não existe vale como o link do corretor.
+func (s *PublicService) Visit(ctx context.Context, slug, code, token, layout, invite string) (lead.Visit, error) {
 	room, err := s.Showroom(ctx, slug, code)
 	if err != nil {
 		return lead.Visit{}, err
 	}
 	visitData, _ := json.Marshal(map[string]string{"codigo": room.Broker.Code})
-	if token = strings.TrimSpace(token); token != "" {
+	token = strings.TrimSpace(token)
+	if invite = strings.TrimSpace(invite); invite != "" {
+		v, ok, err := s.visitInvite(ctx, room.Development.ID, invite, token, layout, visitData)
+		if ok || err != nil {
+			return v, err
+		}
+	}
+	if token != "" {
 		l, err := s.repo.FindByToken(ctx, hash(token))
 		switch {
 		case err == nil && l.DevelopmentID == room.Development.ID:
@@ -74,6 +84,38 @@ func (s *PublicService) Visit(ctx context.Context, slug, code, token, layout str
 		return lead.Visit{}, err
 	}
 	return lead.Visit{Token: token}, nil
+}
+
+// visitInvite abre a ficha do cliente convidado. ok é falso quando o convite não existe neste empreendimento.
+func (s *PublicService) visitInvite(ctx context.Context, developmentID, invite, token, layout string, visitData []byte) (lead.Visit, bool, error) {
+	l, err := s.repo.FindByInvite(ctx, developmentID, invite)
+	if errors.Is(err, lead.ErrNotFound) {
+		return lead.Visit{}, false, nil
+	}
+	if err != nil {
+		return lead.Visit{}, false, err
+	}
+	// O navegador que já abriu este convite continua com o mesmo token.
+	known := token != ""
+	if known {
+		current, err := s.repo.FindByToken(ctx, hash(token))
+		if err != nil && !errors.Is(err, lead.ErrNotFound) {
+			return lead.Visit{}, false, err
+		}
+		known = err == nil && current.ID == l.ID
+	}
+	if !known {
+		if token, err = s.newToken(); err != nil {
+			return lead.Visit{}, false, err
+		}
+		if err := s.repo.AddAlias(ctx, l.ID, hash(token), lead.NormalizeLayout(layout)); err != nil {
+			return lead.Visit{}, false, err
+		}
+	}
+	if err := s.repo.AddEvent(ctx, l.ID, lead.EventVisit, visitData); err != nil {
+		return lead.Visit{}, false, err
+	}
+	return lead.Visit{Token: token, Name: l.Name, Phone: l.Phone}, true, nil
 }
 
 func (s *PublicService) Track(ctx context.Context, token string, r lead.EventRequest) error {

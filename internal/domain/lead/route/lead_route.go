@@ -24,6 +24,8 @@ func Register(app *api.App, developments lead.Developments) {
 
 	me := app.API(api.Routes{Authorization: true, Permission: authz.BrokerArea})
 	me.GET("/me/leads", h.MyLeads)
+	me.POST("/me/leads", h.CreateClient)
+	me.POST("/me/leads/import", h.ImportClients)
 	me.GET("/me/leads/:id", h.MyLead)
 	me.PATCH("/me/leads/:id/stage", h.SetStage)
 	me.POST("/me/leads/:id/proposals", h.Adjust)

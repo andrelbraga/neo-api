@@ -27,6 +27,18 @@ type Repository interface {
 	MergeByPhone(ctx context.Context, leadID string) (string, error)
 	Summary(ctx context.Context, brokerID string) (Summary, error)
 	Activity(ctx context.Context, brokerID string) ([]Activity, error)
+
+	// Cliente cadastrado pelo corretor (RN-03.16).
+	// DevelopmentPublished devolve ErrInvalidDevelopment se o empreendimento não existe ou não está publicado.
+	DevelopmentPublished(ctx context.Context, developmentID string) error
+	// FindByPhone acha o cliente (não juntado) com este WhatsApp no empreendimento.
+	FindByPhone(ctx context.Context, developmentID, phone string) (Lead, error)
+	CreateByBroker(ctx context.Context, brokerID, tokenHash, inviteCode string, c NewClientRequest) (Lead, error)
+	// FindByInvite acha o cliente cadastrado pelo código do link de convite, no empreendimento.
+	FindByInvite(ctx context.Context, developmentID, code string) (Lead, error)
+	// AddAlias liga um novo token de navegador ao cliente (um cadastro juntado a ele) e, se o cliente ainda
+	// não tinha visita, grava o layout desta primeira visita.
+	AddAlias(ctx context.Context, leadID, tokenHash, layout string) error
 }
 
 // Developments é o que o showroom usa do empreendimento: só o publicado, pelo endereço.
@@ -37,7 +49,8 @@ type Developments interface {
 // PublicService atende o cliente no showroom, identificado pelo token da visita.
 type PublicService interface {
 	Showroom(ctx context.Context, slug, code string) (Showroom, error)
-	Visit(ctx context.Context, slug, code, token, layout string) (Visit, error)
+	// invite é o código do link de convite de um cliente cadastrado pelo corretor (RN-03.16); pode vir vazio.
+	Visit(ctx context.Context, slug, code, token, layout, invite string) (Visit, error)
 	Track(ctx context.Context, token string, r EventRequest) error
 	Contact(ctx context.Context, token string, r ContactRequest) (Visit, error)
 	Propose(ctx context.Context, token string, r ProposalRequest) (Proposal, error)
@@ -51,6 +64,9 @@ type BrokerService interface {
 	Adjust(ctx context.Context, userID, id string, r AdjustRequest) (Proposal, error)
 	Summary(ctx context.Context, userID string) (Summary, error)
 	Activity(ctx context.Context, userID string) ([]Activity, error)
+	// Create cadastra um cliente à mão; Import, os da planilha CSV (RN-03.16). Com dryRun, Import só confere.
+	Create(ctx context.Context, userID string, r NewClientRequest) (Lead, error)
+	Import(ctx context.Context, userID, developmentID string, data []byte, dryRun bool) (ImportReport, error)
 }
 
 // AdminService é a visão de tudo no admin, sem marcar propostas como vistas.

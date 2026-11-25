@@ -31,6 +31,10 @@ const (
 	EventContact  = "contato"
 	EventProposal = "proposta"
 
+	// OriginLink é o cliente que chegou pelo link; OriginBroker, o que o corretor cadastrou (RN-03.16).
+	OriginLink   = "link"
+	OriginBroker = "corretor"
+
 	maxEventData   = 2048
 	maxSummary     = 900
 	maxNote        = 400
@@ -96,6 +100,10 @@ type Lead struct {
 	OutcomeNote    string     `json:"outcome_note"`
 	// Layout é o layout da apresentação na primeira visita (ADR-0019): "a" ou "b".
 	Layout string `json:"layout"`
+	// Origin diz se o cliente chegou pelo link ("link") ou foi cadastrado pelo corretor ("corretor", RN-03.16).
+	Origin string `json:"origin"`
+	// InviteCode é o código do link de convite do cliente cadastrado pelo corretor; vazio para quem veio pelo link.
+	InviteCode string `json:"invite_code"`
 }
 
 // LayoutStats é a conversão de um layout: clientes, quantos enviaram proposta e quantos fecharam.
