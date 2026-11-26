@@ -252,3 +252,7 @@ O CI da `main` falhava desde `aad2395` em dois testes de integração, ambos des
   - `GET /api/me/leads/:id/photos/:photoID` (dono do cliente) e `GET /api/admin/leads/:id/photos/:photoID`.
 - `photo_path` no corretor (`/auth/me`, admin) e no showroom. A proposta do cliente liga as fotos de `condition.fotos` que são dele (ou de cadastro juntado) e ainda estão soltas; as outras saem da condição.
 - Testes: lint, unitários e integração; cobertura de `internal/` em 94,4%. Conexão com o bucket de produção conferida com um teste temporário (enviar, ler e apagar; o bucket voltou a 0 objetos).
+
+## 25/11/2026 — RN-03.23: fotos por veículo e observações do cliente
+
+- Cópia compartilhada da RN-03.23 (ADR-0017): cada veículo da proposta leva as observações do cliente e as fotos dele (`veiculos[i].estado` e `veiculos[i].fotos`); a API continua ligando à proposta só as fotos de `condition.fotos`. A mudança de código está no neo-app.
