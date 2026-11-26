@@ -256,3 +256,8 @@ O CI da `main` falhava desde `aad2395` em dois testes de integração, ambos des
 ## 25/11/2026 — RN-03.23: fotos por veículo e observações do cliente
 
 - Cópia compartilhada da RN-03.23 (ADR-0017): cada veículo da proposta leva as observações do cliente e as fotos dele (`veiculos[i].estado` e `veiculos[i].fotos`); a API continua ligando à proposta só as fotos de `condition.fotos`. A mudança de código está no neo-app.
+
+## 25/11/2026 — Fotos de veículo valem em mais de uma proposta do cliente
+
+- O cliente que reenvia a proposta com os mesmos carros manda as mesmas fotos; a API só ligava fotos soltas (`proposal_id IS NULL`) e as descartava da segunda proposta. Agora a proposta aceita as fotos do cliente (ou de cadastro juntado), `proposal_id` guarda a primeira, e o corretor vê a foto se ela já foi numa proposta do cliente dele. RN-03.23 atualizada (cópia no neo-app).
+- Testes: lint, unitários e integração.
