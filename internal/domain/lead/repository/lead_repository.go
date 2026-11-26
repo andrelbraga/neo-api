@@ -65,11 +65,12 @@ const (
 	queryProposalEvent = `
 		WITH e AS (INSERT INTO lead_events (lead_id, kind, data) VALUES ($1, 'proposta', $2) RETURNING lead_id)
 		UPDATE leads SET last_activity_at = now() WHERE id = (SELECT lead_id FROM e)`
-	// Fotos de veículo (RN-03.23): a proposta do cliente leva as dele que ainda não estão em outra proposta,
-	// inclusive as de um cadastro juntado a ele (ADR-0016). Ids vêm conferidos (lead.PhotoIDs).
+	// Fotos de veículo (RN-03.23): a proposta do cliente leva as fotos dele, inclusive as de um cadastro juntado
+	// a ele (ADR-0016). A mesma foto vale em mais de uma proposta (o cliente reenvia com os mesmos carros);
+	// proposal_id guarda a primeira. Ids vêm conferidos (lead.PhotoIDs).
 	queryAttachPhotos = `
-		UPDATE lead_photos SET proposal_id = $1
-		WHERE id::text = ANY (string_to_array($3, ',')) AND proposal_id IS NULL
+		UPDATE lead_photos SET proposal_id = COALESCE(proposal_id, $1)
+		WHERE id::text = ANY (string_to_array($3, ','))
 			AND lead_id IN (SELECT id FROM leads WHERE id = $2 OR merged_into = $2)
 		RETURNING id::text`
 	querySetPhotos = `UPDATE proposals SET condition = jsonb_set(condition, '{fotos}', $2::jsonb) WHERE id = $1 RETURNING condition`

@@ -533,11 +533,15 @@ func TestLeadRepository_ProposalPhotos_Integration(t *testing.T) {
 	require.NoError(t, database.QueryRowContext(ctx, `SELECT count(*) FROM lead_photos WHERE proposal_id = $1`, p.ID).Scan(&attached))
 	assert.Equal(t, 2, attached)
 
-	// Foto já ligada não muda de proposta; proposta sem o campo fotos não ganha o campo.
-	p2, err := repo.AddProposal(ctx, leadID, lead.Proposal{Author: lead.AuthorClient, Condition: json.RawMessage(`{"preco": 1, "fotos": ["` + mine + `"]}`), Summary: "s"})
+	// O cliente reenvia com os mesmos carros: a foto vale também na nova proposta (e continua na primeira).
+	p2, err := repo.AddProposal(ctx, leadID, lead.Proposal{Author: lead.AuthorClient, Condition: json.RawMessage(`{"preco": 1, "fotos": ["` + mine + `", "` + others + `"]}`), Summary: "s"})
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(p2.Condition, &c))
-	assert.Empty(t, c.Fotos)
+	assert.Equal(t, []string{mine}, c.Fotos)
+	var first string
+	require.NoError(t, database.QueryRowContext(ctx, `SELECT proposal_id FROM lead_photos WHERE id = $1`, mine).Scan(&first))
+	assert.Equal(t, p.ID, first, "a foto guarda a primeira proposta")
+	// Proposta sem o campo fotos não ganha o campo.
 	p3, err := repo.AddProposal(ctx, leadID, lead.Proposal{Author: lead.AuthorClient, Condition: json.RawMessage(`{"preco": 1}`), Summary: "s"})
 	require.NoError(t, err)
 	assert.NotContains(t, string(p3.Condition), "fotos")

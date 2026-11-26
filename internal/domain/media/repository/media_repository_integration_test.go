@@ -91,7 +91,15 @@ func TestMediaRepository_Integration(t *testing.T) {
 	_, err = repo.LeadPhoto(ctx, otherUser, leadID, p.ID)
 	assert.ErrorIs(t, err, media.ErrNotFound, "outro corretor não vê")
 	_, err = repo.LeadPhoto(ctx, userID, mergedID, p.ID)
-	assert.ErrorIs(t, err, media.ErrNotFound, "o id do cliente precisa ser o da proposta")
+	assert.ErrorIs(t, err, media.ErrNotFound, "o id do cliente precisa ser o do cadastro que ficou")
+	// Foto enviada por um cadastro juntado ao cliente aparece no cliente que ficou (ADR-0016).
+	pm, err := repo.AddLeadPhoto(ctx, mergedID, media.Stored{Key: "leads/m/b.jpg", ContentType: "image/jpeg"}, 10)
+	require.NoError(t, err)
+	_, err = database.ExecContext(ctx, `UPDATE lead_photos SET proposal_id = $1 WHERE id = $2`, proposalID, pm.ID)
+	require.NoError(t, err)
+	s, err = repo.LeadPhoto(ctx, userID, leadID, pm.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "leads/m/b.jpg", s.Key)
 	_, err = repo.LeadPhoto(ctx, userID, leadID, "nao-e-uuid")
 	assert.ErrorIs(t, err, media.ErrNotFound)
 }

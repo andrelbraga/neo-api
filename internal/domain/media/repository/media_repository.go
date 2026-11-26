@@ -22,12 +22,14 @@ const (
 	queryLeadByToken = `SELECT COALESCE(merged_into, id) FROM leads WHERE token_hash = $1`
 	queryCountPhotos = `SELECT count(*) FROM lead_photos WHERE lead_id = $1`
 	queryAddPhoto    = `INSERT INTO lead_photos (lead_id, object_key, content_type, size_bytes) VALUES ($1, $2, $3, $4) RETURNING id`
-	// Só a foto ligada a uma proposta do cliente; com $3, só se o cliente é do corretor da conta.
+	// Só a foto que já foi numa proposta e é deste cliente (ou de um cadastro juntado a ele, ADR-0016); com $3,
+	// só se o cliente é do corretor da conta.
 	queryLeadPhoto = `
 		SELECT p.object_key, p.content_type
-		FROM lead_photos p JOIN proposals pr ON pr.id = p.proposal_id JOIN leads l ON l.id = pr.lead_id
+		FROM lead_photos p JOIN leads owner ON owner.id = p.lead_id JOIN leads l ON l.id = $2
 		LEFT JOIN brokers b ON b.id = l.broker_id
-		WHERE p.id = $1 AND pr.lead_id = $2 AND ($3 = '' OR b.user_id::text = $3)`
+		WHERE p.id = $1 AND p.proposal_id IS NOT NULL AND (owner.id = l.id OR owner.merged_into = l.id)
+			AND ($3 = '' OR b.user_id::text = $3)`
 )
 
 type MediaRepository struct {
