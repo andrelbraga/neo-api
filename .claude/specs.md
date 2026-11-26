@@ -231,6 +231,10 @@ O CI da `main` falhava desde `aad2395` em dois testes de integração, ambos des
 - App: `LeadsTable` ganha `selection` (checkbox por linha e "selecionar todos" no cabeçalho; sem WhatsApp, desligado), só no corretor e fora dos arquivados. Em Meus clientes, a barra "N selecionados · Limpar · Enviar WhatsApp" substitui o botão "Enviar mensagens"; a busca e a aba limpam a seleção. O `SendQueueDialog` recebe os marcados e só pede o tom.
 - API sem mudança. Testes do app: typecheck, lint e 113 testes. Não foi conferido no navegador.
 
+## 25/11/2026 — P-20: sem o botão de medição no layout A
+
+- Cópia compartilhada das pendências (ADR-0017): o botão "Medição da navegação" do layout A saiu a pedido do usuário; nenhum dos dois layouts tem como parar a medição depois de aceitar. A mudança de código está no neo-app (proposta do layout A igual à da página 104-A).
+
 ## 25/11/2026 — Perfil "Veraneio" aparece como "Temporada"
 
 - RN-03.17 (cópia compartilhada, ADR-0017): a tela diz "Temporada"; a chave `veraneio` da API e do banco não muda. A mudança de código está no neo-app.
