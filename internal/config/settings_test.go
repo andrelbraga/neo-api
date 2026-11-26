@@ -62,3 +62,20 @@ func TestValidate_Deployed(t *testing.T) {
 		})
 	}
 }
+
+func TestStorage(t *testing.T) {
+	for _, k := range []string{"S3_ENDPOINT", "S3_BUCKET", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_REGION"} {
+		t.Setenv(k, "")
+	}
+	c := Load()
+	assert.False(t, c.Storage.Enabled(), "sem bucket, o envio de fotos fica desligado")
+	assert.Equal(t, "auto", c.Storage.Region)
+
+	t.Setenv("S3_ENDPOINT", "https://t3.storageapi.dev")
+	t.Setenv("S3_BUCKET", "neo-files-x")
+	t.Setenv("S3_ACCESS_KEY_ID", "k")
+	assert.False(t, Load().Storage.Enabled(), "falta o segredo")
+	t.Setenv("S3_SECRET_ACCESS_KEY", "s")
+	assert.True(t, Load().Storage.Enabled())
+	assert.NoError(t, Load().Validate(), "o bucket não é obrigatório para subir")
+}

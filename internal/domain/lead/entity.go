@@ -8,6 +8,7 @@ package lead
 
 import (
 	"encoding/json"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -61,6 +62,8 @@ type PublicBroker struct {
 	Code       string `json:"code"`
 	AgencyName string `json:"agency_name"`
 	AgencyLogo string `json:"agency_logo_url"`
+	// PhotoPath é a foto do corretor na API (RN-01.11); vazio mostra as iniciais.
+	PhotoPath string `json:"photo_path"`
 }
 
 type Showroom struct {
@@ -207,6 +210,30 @@ type ProposalRequest struct {
 	Note          string          `json:"note"`
 	WantsContract bool            `json:"wants_contract"`
 	Condition     json.RawMessage `json:"condition"`
+}
+
+// MaxProposalPhotos limita as fotos de veículo de uma proposta (RN-03.23).
+const MaxProposalPhotos = 12
+
+var photoIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// PhotoIDs lê os ids das fotos de veículo da proposta (condition.fotos), sem repetir e só os que têm forma de id.
+func PhotoIDs(condition json.RawMessage) []string {
+	var c struct {
+		Fotos []any `json:"fotos"`
+	}
+	if json.Unmarshal(condition, &c) != nil {
+		return nil
+	}
+	ids := []string{}
+	for _, f := range c.Fotos {
+		id, ok := f.(string)
+		id = strings.ToLower(strings.TrimSpace(id))
+		if ok && photoIDRe.MatchString(id) && !slices.Contains(ids, id) && len(ids) < MaxProposalPhotos {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 // AdjustRequest é o ajuste do corretor sobre uma proposta (RN-03.12).

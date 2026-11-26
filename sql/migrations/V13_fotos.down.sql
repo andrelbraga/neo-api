@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS lead_photos;
+ALTER TABLE brokers DROP COLUMN IF EXISTS photo_key;

@@ -2,6 +2,7 @@ package lead
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -122,4 +123,18 @@ func TestValidStage(t *testing.T) {
 		assert.True(t, ValidStage(s), s)
 	}
 	assert.False(t, ValidStage("vendido"))
+}
+
+func TestPhotoIDs(t *testing.T) {
+	a, b := "0a1b2c3d-0000-4000-8000-000000000001", "0a1b2c3d-0000-4000-8000-000000000002"
+	cond := json.RawMessage(`{"preco": 1, "fotos": ["` + strings.ToUpper(a) + `", "` + b + `", "` + a + `", "x", 7, "../y"]}`)
+	assert.Equal(t, []string{a, b}, PhotoIDs(cond), "só ids, sem repetir, em minúsculas")
+	assert.Empty(t, PhotoIDs(json.RawMessage(`{"preco": 1}`)))
+	assert.Empty(t, PhotoIDs(json.RawMessage(`[]`)))
+
+	many := []string{}
+	for i := 0; i < MaxProposalPhotos+5; i++ {
+		many = append(many, `"0a1b2c3d-0000-4000-8000-`+fmt.Sprintf("%012d", i)+`"`)
+	}
+	assert.Len(t, PhotoIDs(json.RawMessage(`{"fotos": [`+strings.Join(many, ",")+`]}`)), MaxProposalPhotos)
 }

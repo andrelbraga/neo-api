@@ -20,17 +20,19 @@ const (
 )
 
 type Broker struct {
-	ID         string    `json:"id"`
-	UserID     string    `json:"user_id"`
-	FirstName  string    `json:"first_name"`
-	LastName   string    `json:"last_name"`
-	Email      string    `json:"email"`
-	Phone      string    `json:"phone"`
-	Creci      string    `json:"creci"`
-	Code       string    `json:"code"`
-	AgencyID   *string   `json:"agency_id"`
-	AgencyName string    `json:"agency_name"`
-	AgencyLogo string    `json:"agency_logo_url"`
+	ID         string  `json:"id"`
+	UserID     string  `json:"user_id"`
+	FirstName  string  `json:"first_name"`
+	LastName   string  `json:"last_name"`
+	Email      string  `json:"email"`
+	Phone      string  `json:"phone"`
+	Creci      string  `json:"creci"`
+	Code       string  `json:"code"`
+	AgencyID   *string `json:"agency_id"`
+	AgencyName string  `json:"agency_name"`
+	AgencyLogo string  `json:"agency_logo_url"`
+	// PhotoPath é a foto do corretor na API (RN-01.11); vazio sem foto.
+	PhotoPath  string    `json:"photo_path"`
 	Active     bool      `json:"active"`
 	LeadsCount int       `json:"leads_count"`
 	CreatedAt  time.Time `json:"created_at"`
