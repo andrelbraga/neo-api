@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"neo360-api/internal/domain/lead"
+	"neo360-api/internal/domain/media"
 	"neo360-api/internal/pkg/pgerr"
 )
 
@@ -24,7 +25,7 @@ const (
 	from = ` FROM leads l JOIN developments d ON d.id = l.development_id JOIN brokers b ON b.id = l.broker_id`
 
 	queryShowroomBroker = `
-		SELECT b.id, b.first_name || ' ' || b.last_name, b.phone, b.creci, b.code, COALESCE(o.name, ''), COALESCE(o.logo_url, '')
+		SELECT b.id, b.first_name || ' ' || b.last_name, b.phone, b.creci, b.code, COALESCE(o.name, ''), COALESCE(o.logo_url, ''), b.photo_key
 		FROM brokers b JOIN users u ON u.id = b.user_id LEFT JOIN organizations o ON o.id = b.agency_id
 		WHERE b.code = $1 AND u.active`
 	queryBrokerByUser = `SELECT id FROM brokers WHERE user_id = $1`
@@ -64,6 +65,14 @@ const (
 	queryProposalEvent = `
 		WITH e AS (INSERT INTO lead_events (lead_id, kind, data) VALUES ($1, 'proposta', $2) RETURNING lead_id)
 		UPDATE leads SET last_activity_at = now() WHERE id = (SELECT lead_id FROM e)`
+	// Fotos de veículo (RN-03.23): a proposta do cliente leva as dele que ainda não estão em outra proposta,
+	// inclusive as de um cadastro juntado a ele (ADR-0016). Ids vêm conferidos (lead.PhotoIDs).
+	queryAttachPhotos = `
+		UPDATE lead_photos SET proposal_id = $1
+		WHERE id::text = ANY (string_to_array($3, ',')) AND proposal_id IS NULL
+			AND lead_id IN (SELECT id FROM leads WHERE id = $2 OR merged_into = $2)
+		RETURNING id::text`
+	querySetPhotos = `UPDATE proposals SET condition = jsonb_set(condition, '{fotos}', $2::jsonb) WHERE id = $1 RETURNING condition`
 	// Proposta leva o cliente à etapa "proposta" se ele ainda estava antes dela; desfecho não é tocado.
 	queryAdvance = `UPDATE leads SET stage = 'proposta', updated_at = now() WHERE id = $1 AND stage IN ('novo', 'em_atendimento')`
 	// Proposta nova do cliente tira o cadastro do arquivo: o corretor não pode deixar de vê-la (RN-03.19).
@@ -154,7 +163,9 @@ func NewLeadRepository(db *sql.DB) *LeadRepository {
 // ShowroomBroker acha o corretor ativo pelo código do link; corretor desativado derruba o link (RN-02.2).
 func (r *LeadRepository) ShowroomBroker(ctx context.Context, code string) (lead.PublicBroker, error) {
 	var b lead.PublicBroker
-	err := r.db.QueryRowContext(ctx, queryShowroomBroker, code).Scan(&b.ID, &b.Name, &b.Phone, &b.Creci, &b.Code, &b.AgencyName, &b.AgencyLogo)
+	var photo string
+	err := r.db.QueryRowContext(ctx, queryShowroomBroker, code).Scan(&b.ID, &b.Name, &b.Phone, &b.Creci, &b.Code, &b.AgencyName, &b.AgencyLogo, &photo)
+	b.PhotoPath = media.BrokerPhotoPath(photo)
 	if errors.Is(err, sql.ErrNoRows) {
 		return b, lead.ErrShowroomNotFound
 	}
@@ -303,6 +314,9 @@ func (r *LeadRepository) AddProposal(ctx context.Context, leadID string, p lead.
 		return out, notFound(err, "add proposal")
 	}
 	if p.Author == lead.AuthorClient {
+		if out.Condition, err = attachPhotos(ctx, tx, out.ID, leadID, out.Condition); err != nil {
+			return out, err
+		}
 		if _, err = tx.ExecContext(ctx, queryUnarchive, leadID); err != nil {
 			return out, fmt.Errorf("unarchive: %w", err)
 		}
@@ -578,6 +592,52 @@ func scan(s scanner) (lead.Lead, error) {
 		l.Signals = strings.Split(signals, ",")
 	}
 	return l, err
+}
+
+// attachPhotos liga à proposta as fotos de veículo que ela cita e deixa em condition.fotos só as que ficaram.
+func attachPhotos(ctx context.Context, tx *sql.Tx, proposalID, leadID string, condition json.RawMessage) (json.RawMessage, error) {
+	ids := lead.PhotoIDs(condition)
+	if len(ids) == 0 && !hasPhotos(condition) {
+		return condition, nil
+	}
+	rows, err := tx.QueryContext(ctx, queryAttachPhotos, proposalID, leadID, strings.Join(ids, ","))
+	if err != nil {
+		return condition, fmt.Errorf("attach photos: %w", err)
+	}
+	attached := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return condition, fmt.Errorf("attach photos: %w", err)
+		}
+		attached[id] = true
+	}
+	if err = rows.Close(); err != nil {
+		return condition, fmt.Errorf("attach photos: %w", err)
+	}
+	kept := []string{}
+	for _, id := range ids {
+		if attached[id] {
+			kept = append(kept, id)
+		}
+	}
+	list, _ := json.Marshal(kept)
+	var out []byte
+	if err = tx.QueryRowContext(ctx, querySetPhotos, proposalID, list).Scan(&out); err != nil {
+		return condition, fmt.Errorf("set photos: %w", err)
+	}
+	return out, nil
+}
+
+// hasPhotos diz se a proposta trouxe o campo fotos, mesmo sem nenhum id válido (aí ele fica vazio).
+func hasPhotos(condition json.RawMessage) bool {
+	var c map[string]json.RawMessage
+	if json.Unmarshal(condition, &c) != nil {
+		return false
+	}
+	_, ok := c["fotos"]
+	return ok
 }
 
 func scanProposal(s scanner) (lead.Proposal, error) {

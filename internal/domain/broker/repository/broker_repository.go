@@ -7,12 +7,13 @@ import (
 	"fmt"
 
 	"neo360-api/internal/domain/broker"
+	"neo360-api/internal/domain/media"
 	"neo360-api/internal/pkg/pgerr"
 )
 
 const (
 	columns = `b.id, b.user_id, b.first_name, b.last_name, u.email, b.phone, b.creci, b.code, b.agency_id,
-		COALESCE(o.name, ''), COALESCE(o.logo_url, ''), u.active, (SELECT count(*) FROM leads l WHERE l.broker_id = b.id), b.created_at`
+		COALESCE(o.name, ''), COALESCE(o.logo_url, ''), b.photo_key, u.active, (SELECT count(*) FROM leads l WHERE l.broker_id = b.id), b.created_at`
 	from = ` FROM brokers b JOIN users u ON u.id = b.user_id LEFT JOIN organizations o ON o.id = b.agency_id`
 
 	queryList      = `SELECT ` + columns + from + ` ORDER BY b.first_name, b.last_name`
@@ -186,8 +187,10 @@ func checkAgency(ctx context.Context, tx *sql.Tx, agencyID *string) error {
 func scan(s scanner) (broker.Broker, error) {
 	var b broker.Broker
 	var agency sql.NullString
+	var photo string
 	err := s.Scan(&b.ID, &b.UserID, &b.FirstName, &b.LastName, &b.Email, &b.Phone, &b.Creci, &b.Code, &agency,
-		&b.AgencyName, &b.AgencyLogo, &b.Active, &b.LeadsCount, &b.CreatedAt)
+		&b.AgencyName, &b.AgencyLogo, &photo, &b.Active, &b.LeadsCount, &b.CreatedAt)
+	b.PhotoPath = media.BrokerPhotoPath(photo)
 	if agency.Valid {
 		b.AgencyID = &agency.String
 	}

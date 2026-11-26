@@ -238,3 +238,17 @@ O CI da `main` falhava desde `aad2395` em dois testes de integração, ambos des
 ## 25/11/2026 — Perfil "Veraneio" aparece como "Temporada"
 
 - RN-03.17 (cópia compartilhada, ADR-0017): a tela diz "Temporada"; a chave `veraneio` da API e do banco não muda. A mudança de código está no neo-app.
+
+## 25/11/2026 — Fotos no bucket S3: foto do corretor e fotos dos veículos da proposta
+
+- Pedido: foto do corretor no cartão da apresentação e fotos dos carros na proposta, no bucket `neo-files` criado no Railway. ADR-0029, RN-01.11, RN-03.23, P-21; P-06 atualizada.
+- Dependência nova: `github.com/minio/minio-go/v7` v7.3.0 (aprovada pelo usuário; a v7.4 exigiria Go 1.26).
+- `internal/infra/storage`: conexão com o bucket (virtual-hosted, como o Railway pede) e conferência de imagem pelo conteúdo (JPEG, PNG, WebP). Config `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_REGION`; sem elas o envio responde 503 e o resto sobe.
+- V13: `brokers.photo_key` e `lead_photos` (cliente, proposta, chave, tipo, tamanho).
+- Domínio `media`:
+  - `PUT` e `DELETE /api/me/photo`;
+  - `GET /api/public/media/brokers/:file` (só a foto atual de corretor ativo, cache permanente);
+  - `POST /api/public/lead/photos` (token da visita, até 30 por cliente);
+  - `GET /api/me/leads/:id/photos/:photoID` (dono do cliente) e `GET /api/admin/leads/:id/photos/:photoID`.
+- `photo_path` no corretor (`/auth/me`, admin) e no showroom. A proposta do cliente liga as fotos de `condition.fotos` que são dele (ou de cadastro juntado) e ainda estão soltas; as outras saem da condição.
+- Testes: lint, unitários e integração; cobertura de `internal/` em 94,4%. Conexão com o bucket de produção conferida com um teste temporário (enviar, ler e apagar; o bucket voltou a 0 objetos).

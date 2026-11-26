@@ -30,6 +30,23 @@ type Configs struct {
 	JWTSecret      string
 	JWTExpiryHours int
 	AllowedOrigins []string
+	// Storage é o bucket S3 (Railway Bucket neo-files) das fotos do corretor e dos veículos. Sem ele, o envio
+	// de fotos fica desligado e o resto da API funciona.
+	Storage Storage
+}
+
+// Storage são as credenciais S3; no Railway vêm por referência às variáveis do bucket.
+type Storage struct {
+	Endpoint        string
+	Bucket          string
+	AccessKeyID     string
+	SecretAccessKey string
+	Region          string
+}
+
+// Enabled vale quando há bucket, endpoint e credenciais.
+func (s Storage) Enabled() bool {
+	return s.Endpoint != "" && s.Bucket != "" && s.AccessKeyID != "" && s.SecretAccessKey != ""
 }
 
 // Load lê as variáveis de ambiente. Os defaults servem ao ambiente local (docker compose).
@@ -42,6 +59,13 @@ func Load() Configs {
 		JWTSecret:      getEnv("JWT_SECRET", devJWTSecret),
 		JWTExpiryHours: getEnvInt("JWT_EXPIRY_HOURS", 12),
 		AllowedOrigins: splitList(getEnv("ALLOWED_ORIGINS", "http://localhost:5174")),
+		Storage: Storage{
+			Endpoint:        getEnv("S3_ENDPOINT", ""),
+			Bucket:          getEnv("S3_BUCKET", ""),
+			AccessKeyID:     getEnv("S3_ACCESS_KEY_ID", ""),
+			SecretAccessKey: getEnv("S3_SECRET_ACCESS_KEY", ""),
+			Region:          getEnv("S3_REGION", "auto"),
+		},
 	}
 }
 

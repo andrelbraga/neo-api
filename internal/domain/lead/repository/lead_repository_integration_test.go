@@ -4,6 +4,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -481,4 +482,63 @@ func TestLeadRepository_MessageSent(t *testing.T) {
 
 	_, err = repo.MessageSent(ctx, "00000000-0000-0000-0000-000000000000", []byte(`{}`))
 	assert.Error(t, err, "cliente inexistente")
+}
+
+// RN-03.23: a proposta do cliente leva as fotos de veículo dele que ainda estão soltas; as dos outros não.
+func TestLeadRepository_ProposalPhotos_Integration(t *testing.T) {
+	database := testutil.MigratedDB(t, "../../../../sql/migrations")
+	repo := NewLeadRepository(database)
+	ctx := context.Background()
+
+	var devID, userID, brokerID, leadID, mergedID, otherLead string
+	require.NoError(t, database.QueryRowContext(ctx, `SELECT id FROM developments WHERE slug = 'boa-vista-residencial'`).Scan(&devID))
+	require.NoError(t, database.QueryRowContext(ctx,
+		`INSERT INTO users (name, email, password_hash, role) VALUES ('X', 'fab@x.com', 'h', 'corretor') RETURNING id`).Scan(&userID))
+	require.NoError(t, database.QueryRowContext(ctx,
+		`INSERT INTO brokers (user_id, first_name, last_name, phone, code, photo_key) VALUES ($1, 'Fabiano', 'Souza', '54999990000', 'FAB-0001', 'brokers/f.jpg') RETURNING id`,
+		userID).Scan(&brokerID))
+	b, err := repo.ShowroomBroker(ctx, "FAB-0001")
+	require.NoError(t, err)
+	assert.Equal(t, "/public/media/brokers/f.jpg", b.PhotoPath, "a foto do corretor vai para a apresentação")
+
+	newLead := func(hash string, into *string) string {
+		var id string
+		require.NoError(t, database.QueryRowContext(ctx,
+			`INSERT INTO leads (development_id, broker_id, token_hash, merged_into) VALUES ($1, $2, $3, $4) RETURNING id`, devID, brokerID, hash, into).Scan(&id))
+		return id
+	}
+	leadID = newLead("h1", nil)
+	mergedID = newLead("h2", &leadID)
+	otherLead = newLead("h3", nil)
+	photo := func(lead, key string) string {
+		var id string
+		require.NoError(t, database.QueryRowContext(ctx,
+			`INSERT INTO lead_photos (lead_id, object_key, content_type, size_bytes) VALUES ($1, $2, 'image/jpeg', 10) RETURNING id`, lead, key).Scan(&id))
+		return id
+	}
+	mine, fromMerged, others := photo(leadID, "leads/a.jpg"), photo(mergedID, "leads/b.jpg"), photo(otherLead, "leads/c.jpg")
+
+	cond := json.RawMessage(`{"preco": 370000, "fotos": ["` + mine + `", "` + others + `", "` + fromMerged + `", "lixo"]}`)
+	p, err := repo.AddProposal(ctx, leadID, lead.Proposal{Author: lead.AuthorClient, Condition: cond, Summary: "s"})
+	require.NoError(t, err)
+	var c struct {
+		Preco float64  `json:"preco"`
+		Fotos []string `json:"fotos"`
+	}
+	require.NoError(t, json.Unmarshal(p.Condition, &c))
+	assert.Equal(t, []string{mine, fromMerged}, c.Fotos, "fica só o que é do cliente (e do cadastro juntado), na ordem")
+	assert.Equal(t, 370000.0, c.Preco)
+
+	var attached int
+	require.NoError(t, database.QueryRowContext(ctx, `SELECT count(*) FROM lead_photos WHERE proposal_id = $1`, p.ID).Scan(&attached))
+	assert.Equal(t, 2, attached)
+
+	// Foto já ligada não muda de proposta; proposta sem o campo fotos não ganha o campo.
+	p2, err := repo.AddProposal(ctx, leadID, lead.Proposal{Author: lead.AuthorClient, Condition: json.RawMessage(`{"preco": 1, "fotos": ["` + mine + `"]}`), Summary: "s"})
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(p2.Condition, &c))
+	assert.Empty(t, c.Fotos)
+	p3, err := repo.AddProposal(ctx, leadID, lead.Proposal{Author: lead.AuthorClient, Condition: json.RawMessage(`{"preco": 1}`), Summary: "s"})
+	require.NoError(t, err)
+	assert.NotContains(t, string(p3.Condition), "fotos")
 }
